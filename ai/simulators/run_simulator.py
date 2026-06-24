@@ -4,8 +4,7 @@ import argparse
 import asyncio
 import json
 import random
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 MODES = ("agriculture", "industry", "weather")
 
@@ -35,7 +34,7 @@ def generate_reading(sensor: dict, device_id: str) -> dict:
         "sensorType": sensor["type"],
         "value": value,
         "unit": sensor["unit"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
