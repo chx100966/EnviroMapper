@@ -2,14 +2,14 @@ name: Backend CI
 
 on:
   push:
-    paths:
-      - 'backend/**'
+    branches: [main, develop, 'feature/**', 'fix/**']
+    paths: ['backend/**', '.editorconfig']
   pull_request:
-    paths:
-      - 'backend/**'
+    branches: [main, develop]
+    paths: ['backend/**', '.editorconfig']
 
 jobs:
-  build-and-test:
+  lint-build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,11 +19,28 @@ jobs:
         with:
           dotnet-version: '8.x'
 
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
+          restore-keys: nuget-
+
       - name: Restore
         run: dotnet restore backend/EnviroMapper.sln
+
+      - name: Lint (dotnet format)
+        run: dotnet format backend/EnviroMapper.sln --verify-no-changes
 
       - name: Build
         run: dotnet build backend/EnviroMapper.sln --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test backend/EnviroMapper.sln --no-build --configuration Release
+        run: dotnet test backend/EnviroMapper.sln --no-build --configuration Release --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: '**/TestResults/*.trx'
