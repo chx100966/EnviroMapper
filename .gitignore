@@ -1,0 +1,61 @@
+# ============================================================
+# EnviroMapper – .gitignore
+# ============================================================
+
+# ------ Backend (.NET / C#) --------------------------------
+backend/**/*.user
+backend/**/bin/
+backend/**/obj/
+backend/**/*.suo
+backend/**/*.vs/
+backend/**/.vs/
+backend/**/*.DotSettings.user
+*.nupkg
+*.snupkg
+
+# ------ Frontend (Node / React) ----------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/.parcel-cache/
+frontend/.next/
+
+# ------ AI / Python ----------------------------------------
+ai/__pycache__/
+ai/**/__pycache__/
+ai/**/*.pyc
+ai/**/*.pyo
+ai/.venv/
+ai/venv/
+ai/.env
+ai/data/raw/*
+ai/data/processed/*
+!ai/data/raw/.gitkeep
+!ai/data/processed/.gitkeep
+ai/models/*.pt
+ai/models/*.pth
+ai/models/*.pkl
+!ai/models/.gitkeep
+
+# ------ Infrastructure / Secrets ---------------------------
+infra/**/*.tfstate
+infra/**/*.tfstate.backup
+infra/**/.terraform/
+*.bicepparam.local
+
+# ------ General --------------------------------------------
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.idea/
+.vscode/settings.json
