@@ -17,6 +17,7 @@ backend/**/*.DotSettings.user
 frontend/node_modules/
 frontend/dist/
 frontend/build/
+frontend/*.tsbuildinfo
 frontend/.env
 frontend/.env.local
 frontend/.env.*.local

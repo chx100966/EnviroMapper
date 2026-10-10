@@ -77,6 +77,9 @@ docs: update quick start instructions
 |-------|--------------------|
 | Backend (C#) | `dotnet format` (EditorConfig) |
 | Frontend (JS/TS) | ESLint + Prettier |
-| AI (Python) | Black + Ruff |
+| AI (Python) | Ruff |
 
-Run formatters before opening a PR.
+Run formatters before opening a PR (`dotnet format`, `npm run format`, `ruff format`).
+
+CI (`.github/workflows/ci.yml`) only checks that each module builds, has no lint errors and passes its
+tests — formatting is not enforced yet.
