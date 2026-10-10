@@ -47,3 +47,18 @@ jobs:
       - run: pip install ruff pytest
       - run: ruff check .
       - run: pytest
+
+  infra:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.16.5'
+      # No Azure credentials in CI — no plan; `terraform test` runs against mocked providers
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - run: terraform test

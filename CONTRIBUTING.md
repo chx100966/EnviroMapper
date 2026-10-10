@@ -78,8 +78,9 @@ docs: update quick start instructions
 | Backend (C#) | `dotnet format` (EditorConfig) |
 | Frontend (JS/TS) | ESLint + Prettier |
 | AI (Python) | Ruff |
+| Infra (Terraform) | `terraform fmt` |
 
-Run formatters before opening a PR (`dotnet format`, `npm run format`, `ruff format`).
+Run formatters before opening a PR (`dotnet format`, `npm run format`, `ruff format`, `terraform fmt -recursive`).
 
 CI (`.github/workflows/ci.yml`) only checks that each module builds, has no lint errors and passes its
 tests — formatting is not enforced yet.
