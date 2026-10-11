@@ -45,9 +45,13 @@ ai/models/*.pkl
 infra/**/*.tfstate
 infra/**/*.tfstate.backup
 infra/**/.terraform/
+infra/**/.terraform.tfstate.lock.info
+infra/**/terraform.tfvars
+infra/**/*.tfplan
 *.bicepparam.local
 
 # ------ General --------------------------------------------
+.ci-report/
 .env
 .env.*
 !.env.example

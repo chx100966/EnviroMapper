@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars (git-ignored) and adjust. Everything here is optional - the defaults
+# in variables.tf are the cheapest working setup.
+
+# Pick one of the regions allowed for your subscription (Azure for Students: see README.md).
+# location = "polandcentral"
+
+# Static Web Apps fails with RequestDisallowedByAzure on many Azure for Students subscriptions.
+# frontend_hosting = "storage"
+
+# Your public IP, for connecting to SQL from Azure Data Studio / SSMS (curl -s https://ifconfig.me).
+# sql_firewall_allowed_ips = {
+#   alice-home = "203.0.113.10"
+# }
+
+# Budget alerts for the resource group (amount in the billing currency).
+# budget_contact_emails = ["alice@example.com"]
+# budget_amount         = 10
