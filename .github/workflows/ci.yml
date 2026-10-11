@@ -5,38 +5,115 @@ on:
     branches: [main, develop]
   pull_request:
 
+# A newer push to the same PR cancels the run in progress; runs on main/develop always finish
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Each job leaves machine-readable tool output here; the last step turns it into the PR report
+  REPORT_DIR: ${{ github.workspace }}/.ci-report
+  CI_REPORT: ${{ github.workspace }}/.github/scripts/ci_report.py
+  # Report links point at the PR's head commit, not the temporary merge commit
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   backend:
     runs-on: ubuntu-latest
     defaults:
       run:
+        shell: bash
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.x'
-      - run: dotnet build
-      - run: dotnet test --no-build
+      - name: Build
+        id: build
+        run: |
+          mkdir -p "$REPORT_DIR"
+          dotnet build \
+            "-flp1:logfile=$REPORT_DIR/msbuild-errors.log;errorsonly" \
+            "-flp2:logfile=$REPORT_DIR/msbuild-warnings.log;warningsonly" \
+            2>&1 | tee "$REPORT_DIR/build.log"
+      - name: Test
+        id: test
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          dotnet test --no-build --logger "trx;LogFilePrefix=tests" --results-directory "$REPORT_DIR/trx" \
+            2>&1 | tee "$REPORT_DIR/test.log"
+      - name: Check formatting (not enforced)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet format --verify-no-changes --no-restore > "$REPORT_DIR/format.log" 2>&1 || echo $? > "$REPORT_DIR/format.exit"
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 "$CI_REPORT" collect backend
+          --outcome build=${{ steps.build.outcome }}
+          --outcome test=${{ steps.test.outcome }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ci-report-backend
+          path: ${{ env.REPORT_DIR }}/backend.json
+          retention-days: 7
+          overwrite: true
 
   frontend:
     runs-on: ubuntu-latest
     defaults:
       run:
+        shell: bash
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install
-      - run: npm run lint
-      - run: npm run build
+      - name: Install dependencies
+        id: install
+        run: |
+          mkdir -p "$REPORT_DIR"
+          npm install 2>&1 | tee "$REPORT_DIR/npm-install.log"
+      - name: Lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          npm run --silent lint -- --format json --output-file "$REPORT_DIR/eslint.json" || true
+          npm run lint
+      - name: Build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build 2>&1 | tee "$REPORT_DIR/build.log"
+      - name: Audit dependencies and check formatting (not enforced)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          npm audit --json > "$REPORT_DIR/npm-audit.json" || true
+          npm run format:check > "$REPORT_DIR/format.log" 2>&1 || echo $? > "$REPORT_DIR/format.exit"
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 "$CI_REPORT" collect frontend
+          --outcome install=${{ steps.install.outcome }}
+          --outcome lint=${{ steps.lint.outcome }}
+          --outcome build=${{ steps.build.outcome }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ci-report-frontend
+          path: ${{ env.REPORT_DIR }}/frontend.json
+          retention-days: 7
+          overwrite: true
 
   ai:
     runs-on: ubuntu-latest
     defaults:
       run:
+        shell: bash
         working-directory: ai
     steps:
       - uses: actions/checkout@v4
@@ -44,21 +121,127 @@ jobs:
         with:
           python-version: '3.11'
       # Only lint/test tools — the full requirements.txt (torch etc.) isn't needed yet
-      - run: pip install ruff pytest
-      - run: ruff check .
-      - run: pytest
+      - name: Install tools
+        id: install
+        run: |
+          mkdir -p "$REPORT_DIR"
+          pip install ruff pytest
+      - name: Lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          ruff check . --output-format json --output-file "$REPORT_DIR/ruff.json" --exit-zero
+          ruff check . --output-format github
+      - name: Test
+        id: test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pytest --junitxml="$REPORT_DIR/pytest.xml" -o junit_family=xunit1 2>&1 | tee "$REPORT_DIR/pytest.log"
+      - name: Check formatting (not enforced)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ruff format --check --output-format json . > "$REPORT_DIR/format.json" || echo $? > "$REPORT_DIR/format.exit"
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 "$CI_REPORT" collect ai
+          --outcome install=${{ steps.install.outcome }}
+          --outcome lint=${{ steps.lint.outcome }}
+          --outcome test=${{ steps.test.outcome }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ci-report-ai
+          path: ${{ env.REPORT_DIR }}/ai.json
+          retention-days: 7
+          overwrite: true
 
   infra:
     runs-on: ubuntu-latest
     defaults:
       run:
+        shell: bash
         working-directory: infra/terraform
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: '1.16.5'
+          terraform_wrapper: false # plain binary, so output can go straight to files
       # No Azure credentials in CI — no plan; `terraform test` runs against mocked providers
-      - run: terraform init -backend=false -input=false
-      - run: terraform validate
-      - run: terraform test
+      - name: Init
+        id: init
+        run: |
+          mkdir -p "$REPORT_DIR"
+          terraform init -backend=false -input=false 2>&1 | tee "$REPORT_DIR/init.log"
+      - name: Validate
+        id: validate
+        if: ${{ !cancelled() && steps.init.outcome == 'success' }}
+        run: |
+          terraform validate -json > "$REPORT_DIR/validate.json" || true
+          terraform validate
+      - name: Test
+        id: test
+        if: ${{ !cancelled() && steps.init.outcome == 'success' }}
+        run: terraform test -junit-xml="$REPORT_DIR/terraform-test.xml" 2>&1 | tee "$REPORT_DIR/test.log"
+      - name: Check formatting (not enforced)
+        if: ${{ !cancelled() }}
+        run: terraform fmt -check -recursive > "$REPORT_DIR/format.log" 2>&1 || echo $? > "$REPORT_DIR/format.exit"
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 "$CI_REPORT" collect infra
+          --outcome init=${{ steps.init.outcome }}
+          --outcome validate=${{ steps.validate.outcome }}
+          --outcome test=${{ steps.test.outcome }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ci-report-infra
+          path: ${{ env.REPORT_DIR }}/infra.json
+          retention-days: 7
+          overwrite: true
+
+  report:
+    needs: [backend, frontend, ai, infra]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # job timings and links
+      contents: read
+      pull-requests: write # the report comment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v4
+        # A job that failed before its Report step uploads nothing — the report still shows it as failed
+        continue-on-error: true
+        with:
+          pattern: ci-report-*
+          path: ${{ env.REPORT_DIR }}
+          merge-multiple: true
+      - name: Render report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          mkdir -p "$REPORT_DIR"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            > "$REPORT_DIR/jobs.json" || echo '{}' > "$REPORT_DIR/jobs.json"
+          python3 "$CI_REPORT" render --jobs "$REPORT_DIR/jobs.json"
+      - name: Comment on the pull request
+        # PRs from forks get a read-only token; their report stays in the run summary
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # One comment per PR, found by the marker ci_report.py puts on its first line
+          comments="repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"
+          id=$(gh api "$comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ci-report -->"))) | .id' | tail -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$REPORT_DIR/comment.md" > /dev/null
+          else
+            gh api --method POST "$comments" -F body=@"$REPORT_DIR/comment.md" > /dev/null
+          fi

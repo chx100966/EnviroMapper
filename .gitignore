@@ -51,6 +51,7 @@ infra/**/*.tfplan
 *.bicepparam.local
 
 # ------ General --------------------------------------------
+.ci-report/
 .env
 .env.*
 !.env.example
