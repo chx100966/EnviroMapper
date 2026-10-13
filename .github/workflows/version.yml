@@ -1,0 +1,75 @@
+name: Version
+
+# Every merge to develop gets a pre-release version (v0.2.0-dev.7) as a git tag; every merge to main
+# gets a release version (v0.2.0) as a tag plus a GitHub Release. One version covers the whole
+# monorepo. See "Versioning" in CONTRIBUTING.md.
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Runs on the same branch queue up instead of cancelling, so tags are created in commit order
+concurrency:
+  group: version-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # tags and releases
+
+jobs:
+  version:
+    # A manual run on a feature branch would hand out a version nobody merged
+    if: ${{ github.ref_name == 'main' || github.ref_name == 'develop' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+      release: ${{ steps.compute.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history and tags, the version is worked out from them
+      - name: Compute version
+        id: compute
+        run: python3 .github/scripts/version.py compute
+      - name: Tag pre-release
+        if: ${{ steps.compute.outputs.release == 'false' && steps.compute.outputs.changed == 'true' }}
+        env:
+          TAG: ${{ steps.compute.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "$TAG already exists, nothing to do"
+            exit 0
+          fi
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+      - name: Create release
+        if: ${{ steps.compute.outputs.release == 'true' && steps.compute.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.compute.outputs.tag }}
+          PREVIOUS: ${{ steps.compute.outputs.previous }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG already released, nothing to do"
+            exit 0
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes \
+            ${PREVIOUS:+--notes-start-tag "$PREVIOUS"}
+      - name: Summary
+        env:
+          VERSION: ${{ steps.compute.outputs.version }}
+          PREVIOUS: ${{ steps.compute.outputs.previous }}
+          BUMP: ${{ steps.compute.outputs.bump }}
+          CHANGED: ${{ steps.compute.outputs.changed }}
+        run: |
+          if [ "$CHANGED" = "true" ]; then
+            echo "### Version \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "$BUMP bump from \`${PREVIOUS:-none}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### No new commits since \`$PREVIOUS\`, no new version" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Containers / deployable builds go here once the apps exist: add a job with `needs: version`, run
+  # `python3 .github/scripts/version.py stamp "${{ needs.version.outputs.version }}"` and tag the image
+  # with `${{ needs.version.outputs.version }}`.
