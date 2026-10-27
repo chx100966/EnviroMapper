@@ -162,29 +162,39 @@ jobs:
         working-directory: infra/terraform
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v4
+      - uses: opentofu/setup-opentofu@v2
         with:
-          terraform_version: '1.16.5'
-          terraform_wrapper: false # plain binary, so output can go straight to files
-      # No Azure credentials in CI — no plan; `terraform test` runs against mocked providers
+          tofu_version: '1.13.2'
+          tofu_wrapper: false # plain binary, so output can go straight to files
+      # No Azure credentials in CI — no plan; `tofu test` runs against mocked providers.
+      # Two root configurations: . (the environment) and bootstrap/ (team access, state storage).
       - name: Init
         id: init
         run: |
           mkdir -p "$REPORT_DIR"
-          terraform init -backend=false -input=false 2>&1 | tee "$REPORT_DIR/init.log"
+          set -o pipefail
+          for dir in . bootstrap; do
+            tofu -chdir="$dir" init -backend=false -input=false 2>&1 | tee -a "$REPORT_DIR/init.log"
+          done
       - name: Validate
         id: validate
         if: ${{ !cancelled() && steps.init.outcome == 'success' }}
         run: |
-          terraform validate -json > "$REPORT_DIR/validate.json" || true
-          terraform validate
+          tofu validate -json > "$REPORT_DIR/validate-main.json" || true
+          tofu -chdir=bootstrap validate -json > "$REPORT_DIR/validate-bootstrap.json" || true
+          tofu validate && tofu -chdir=bootstrap validate
       - name: Test
         id: test
         if: ${{ !cancelled() && steps.init.outcome == 'success' }}
-        run: terraform test -junit-xml="$REPORT_DIR/terraform-test.xml" 2>&1 | tee "$REPORT_DIR/test.log"
+        run: |
+          set -o pipefail
+          status=0
+          tofu test -json-into="$REPORT_DIR/test-main.jsonl" 2>&1 | tee "$REPORT_DIR/test.log" || status=1
+          tofu -chdir=bootstrap test -json-into="$REPORT_DIR/test-bootstrap.jsonl" 2>&1 | tee -a "$REPORT_DIR/test.log" || status=1
+          exit $status
       - name: Check formatting (not enforced)
         if: ${{ !cancelled() }}
-        run: terraform fmt -check -recursive > "$REPORT_DIR/format.log" 2>&1 || echo $? > "$REPORT_DIR/format.exit"
+        run: tofu fmt -check -recursive > "$REPORT_DIR/format.log" 2>&1 || echo $? > "$REPORT_DIR/format.exit"
       - name: Report
         if: ${{ !cancelled() }}
         run: >-

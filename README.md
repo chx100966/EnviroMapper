@@ -34,7 +34,7 @@ EnviroMapper/
 ├── backend/          # C# .NET 8 Web API
 ├── frontend/         # React + TypeScript SPA
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
-├── infra/            # Microsoft Azure — Terraform IaC (see infra/terraform/README.md)
+├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
 └── docs/             # Documentation, mockups, diagrams
 ```
 
@@ -53,7 +53,7 @@ Key Azure components:
 - Node.js 20+
 - Python 3.11+
 - Azure CLI
-- Terraform 1.11+ (infrastructure only)
+- OpenTofu 1.11+ (infrastructure only)
 - Docker (optional)
 
 ### Backend

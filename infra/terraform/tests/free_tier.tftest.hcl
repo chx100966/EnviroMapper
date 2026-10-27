@@ -1,4 +1,4 @@
-# `terraform test` runs fully offline: every provider is mocked, nothing is created in Azure.
+# `tofu test` runs fully offline: every provider is mocked, nothing is created in Azure.
 # Guards the cost model from README.md - a paid SKU should be a deliberate change to these tests.
 
 mock_provider "azurerm" {

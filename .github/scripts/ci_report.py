@@ -32,7 +32,7 @@ MODULES = {  # job id -> (title, stack)
     "backend": ("Backend", ".NET"),
     "frontend": ("Frontend", "React"),
     "ai": ("AI", "Python"),
-    "infra": ("Infra", "Terraform"),
+    "infra": ("Infra", "OpenTofu"),
 }
 ICONS = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️", "skip": "⏭️"}
 RESULT_ICONS = {"passed": ICONS["pass"], "failed": ICONS["fail"], "skipped": ICONS["skip"]}
@@ -58,7 +58,6 @@ TSC_LINE = re.compile(
 )
 DOTNET_FRAME = re.compile(r" in (?P<file>.+?):line (?P<line>\d+)")
 PYTEST_LOCATION = re.compile(r"^(?P<file>[^\s:]+\.py):(?P<line>\d+): ", re.M)
-TERRAFORM_LOCATION = re.compile(r"on (?P<file>\S+) line (?P<line>\d+)")
 NPM_DEPRECATED = re.compile(r"npm warn deprecated (?P<package>\S+): (?P<msg>.+)$", re.M)
 
 
@@ -341,8 +340,8 @@ def timespan(value: str | None) -> float:
     return int(match[1]) * 3600 + int(match[2]) * 60 + float(match[3]) if match else 0.0
 
 
-def parse_junit(path: Path, kind: str) -> list[TestSuite]:
-    """JUnit XML written by pytest (kind="pytest") or `terraform test` (kind="terraform")."""
+def parse_junit(path: Path) -> list[TestSuite]:
+    """JUnit XML written by pytest."""
     try:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError):
@@ -357,20 +356,13 @@ def parse_junit(path: Path, kind: str) -> list[TestSuite]:
             text = failure.text or "" if failure is not None else ""
             file, line = case.get("file"), case.get("line")
             line = int(line) + 1 if line and line.isdigit() else None  # pytest counts from 0
-            if kind == "pytest":
-                name = (
-                    f"{file}::{case.get('name')}"
-                    if file
-                    else f"{case.get('classname')}.{case.get('name')}"
-                )
-                if found := PYTEST_LOCATION.findall(text):  # the assertion, not the test header
-                    file, line = found[-1][0], int(found[-1][1])
-            else:
-                name = case.get("name", "")
-                found = TERRAFORM_LOCATION.search(text)
-                file, line = (
-                    (found["file"], int(found["line"])) if found else (case.get("classname"), None)
-                )
+            name = (
+                f"{file}::{case.get('name')}"
+                if file
+                else f"{case.get('classname')}.{case.get('name')}"
+            )
+            if found := PYTEST_LOCATION.findall(text):  # the assertion, not the test header
+                file, line = found[-1][0], int(found[-1][1])
             if failure is not None:
                 outcome, message = "failed", failure.get("message") or text.strip()
             elif skipped is not None:
@@ -382,6 +374,51 @@ def parse_junit(path: Path, kind: str) -> list[TestSuite]:
         duration = float(suite.get("time") or 0) or sum(case.duration for case in cases)
         suites.append(TestSuite(suite.get("name", ""), cases, duration))
     return suites
+
+
+def parse_tofu_test(path: Path, prefix: str = "") -> list[TestSuite]:
+    """`tofu test -json-into` output: one JSON message per line, one suite per *.tftest.hcl file.
+
+    `prefix` is the configuration's directory relative to the report base (file paths in the
+    output are relative to the configuration)."""
+    runs: dict[str, dict[str, TestCase]] = {}
+    previous: datetime | None = None  # runs execute one after another; no start events
+    outcomes = {"pass": "passed", "fail": "failed", "error": "failed", "skip": "skipped"}
+    for raw in read(path).splitlines():
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        file, run = msg.get("@testfile"), msg.get("@testrun")
+        stamp = iso_time(msg.get("@timestamp"))
+        if msg.get("type") == "test_abstract":
+            previous = stamp
+            for test_file, names in (msg.get("test_abstract") or {}).items():
+                cases = runs.setdefault(test_file, {})
+                for name in names:
+                    cases.setdefault(name, TestCase(name, "skipped", file=prefix + test_file))
+        elif msg.get("type") == "test_run" and file and run:
+            case = runs.setdefault(file, {}).setdefault(run, TestCase(run, "skipped"))
+            case.file = prefix + file
+            status = (msg.get("test_run") or {}).get("status")
+            case.outcome = outcomes.get(status, case.outcome)
+            if stamp and previous:
+                case.duration = (stamp - previous).total_seconds()
+            previous = stamp
+        elif msg.get("type") == "diagnostic" and file and run:
+            diag = msg.get("diagnostic") or {}
+            case = runs.setdefault(file, {}).setdefault(run, TestCase(run, "skipped"))
+            text = diag.get("summary", "") + (f": {diag['detail']}" if diag.get("detail") else "")
+            case.message = case.message or text
+            case.details = "\n".join(filter(None, [case.details, text]))
+            where = diag.get("range") or {}
+            if where.get("filename") and case.line is None:
+                case.file = prefix + where["filename"]
+                case.line = (where.get("start") or {}).get("line")
+    return [
+        TestSuite(prefix + file, list(cases.values()), sum(c.duration for c in cases.values()))
+        for file, cases in runs.items()
+    ]
 
 
 # --- Checks shared by several modules ------------------------------------------------------------
@@ -714,7 +751,7 @@ def collect_ai(d: Path, outcomes: dict[str, str], base: Path) -> list[Check]:
         lint_check("Lint (Ruff)", problems, outcomes.get("lint"), base, fixable, "ruff check --fix")
     )
 
-    suites = parse_junit(d / "pytest.xml", "pytest")
+    suites = parse_junit(d / "pytest.xml")
     empty = "No tests were collected."
     checks.append(
         tests_check(
@@ -739,22 +776,28 @@ def collect_infra(d: Path, outcomes: dict[str, str], base: Path) -> list[Check]:
     if outcomes.get("init") == "failure":
         checks.append(Check("Init", "init", "fail", "failed", code_block(log_tail(d / "init.log"))))
 
+    # Root configurations, as (directory relative to base, report file suffix).
+    configs = [("", "main"), ("bootstrap/", "bootstrap")]
+
     validate = outcomes.get("validate")
     if skipped := not_run("Validate", "validate", validate):
         checks.append(skipped)
     else:
-        result = read_json(d / "validate.json") or {}
-        problems = []
-        for diag in result.get("diagnostics", []):
-            where = diag.get("range") or {}
-            line = (where.get("start") or {}).get("line")
-            message = diag.get("summary", "") + (
-                f": {diag['detail']}" if diag.get("detail") else ""
-            )
-            level = diag.get("severity", "error")
-            problems.append(Problem(level, message, where.get("filename"), line))
-            annotate(level, message, where.get("filename"), line, base, "terraform validate")
-        if validate == "failure" or result.get("error_count"):
+        problems, errors = [], 0
+        for prefix, suffix in configs:
+            result = read_json(d / f"validate-{suffix}.json") or {}
+            errors += result.get("error_count") or 0
+            for diag in result.get("diagnostics", []):
+                where = diag.get("range") or {}
+                file = prefix + where["filename"] if where.get("filename") else None
+                line = (where.get("start") or {}).get("line")
+                message = diag.get("summary", "") + (
+                    f": {diag['detail']}" if diag.get("detail") else ""
+                )
+                level = diag.get("severity", "error")
+                problems.append(Problem(level, message, file, line))
+                annotate(level, message, file, line, base, "tofu validate")
+        if validate == "failure" or errors:
             body = problems_table(problems, base) if problems else "See the job log."
             checks.append(
                 Check("Validate", "validate", "fail", count_summary(problems) or "failed", body)
@@ -765,7 +808,11 @@ def collect_infra(d: Path, outcomes: dict[str, str], base: Path) -> list[Check]:
         else:
             checks.append(Check("Validate", "validate", "pass", note="configuration is valid"))
 
-    suites = parse_junit(d / "terraform-test.xml", "terraform")
+    suites = [
+        suite
+        for prefix, suffix in configs
+        for suite in parse_tofu_test(d / f"test-{suffix}.jsonl", prefix)
+    ]
     checks.append(
         tests_check(
             suites,
@@ -774,14 +821,14 @@ def collect_infra(d: Path, outcomes: dict[str, str], base: Path) -> list[Check]:
             empty="There are no `*.tftest.hcl` files.",
             log=d / "test.log",
             list_all=True,
-            tool="terraform test",
+            tool="tofu test",
         )
     )
 
     if (d / "format.log").exists():
         code_exit = exit_code(d / "format.exit")
         files = read(d / "format.log").split() if code_exit == 3 else []
-        checks.append(format_check(files, code_exit, "terraform fmt -recursive", base, 3))
+        checks.append(format_check(files, code_exit, "tofu fmt -recursive", base, 3))
     return checks
 
 
