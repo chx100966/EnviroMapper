@@ -56,27 +56,8 @@ Key Azure components:
 - Terraform 1.11+ (infrastructure only)
 - Docker (optional)
 
-### Backend
-```bash
-cd backend/src/EnviroMapper.API
-dotnet restore
-dotnet run
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### AI / IoT Simulator
-```bash
-cd ai
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python simulators/run_simulator.py --mode agriculture
-```
+`backend/`, `frontend/` and `ai/` are still empty; run instructions come with the first code in
+each module. The infrastructure is described in [infra/terraform/README.md](infra/terraform/README.md).
 
 ---
 
