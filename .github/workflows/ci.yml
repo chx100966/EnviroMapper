@@ -22,6 +22,8 @@ env:
 
 jobs:
   backend:
+    # Off until the module has code again (backend/ is empty); the report shows it as skipped
+    if: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -64,6 +66,8 @@ jobs:
           overwrite: true
 
   frontend:
+    # Off until the module has code again (frontend/ is empty); the report shows it as skipped
+    if: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -110,6 +114,8 @@ jobs:
           overwrite: true
 
   ai:
+    # Off until the module has code again (ai/ is empty); the report shows it as skipped
+    if: false
     runs-on: ubuntu-latest
     defaults:
       run:
