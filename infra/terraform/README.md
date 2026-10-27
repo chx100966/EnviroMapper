@@ -32,7 +32,8 @@ hours at a time, no production load. Every component is either free-tier or scal
 | Cost guard | Budget on the resource group (optional) | — | $0 |
 | **Total** | | | **≈ $0–2** |
 
-List prices for Poland Central in USD (Azure Retail Prices API, October 2026). The $100 Azure for
+List prices for Poland Central in USD (Azure Retail Prices API, October 2026); the environment runs in
+Germany West Central (see below), where prices may differ slightly. The $100 Azure for
 Students credit covers the whole thesis with a wide margin.
 
 **Assumed usage:** one `dev` environment; the cloud is used a few hours a day on ~15 days a month;
@@ -89,8 +90,18 @@ az policy assignment list --query "[].{name:displayName, parameters:parameters}"
 az functionapp list-flexconsumption-locations --query "[].name" -o tsv
 ```
 
-Choose a `location` that is in both lists. If creating the Static Web App fails with
-`RequestDisallowedByAzure`, set `frontend_hosting = "storage"`.
+Choose a `location` that is in both lists and has every resource type below. For our subscription
+(checked October 2026; `az provider show -n Microsoft.Devices --query "resourceTypes[?resourceType=='IotHubs'].locations"`
+and so on) that leaves one region, which is the default:
+
+| Allowed region | IoT Hub | Flex Consumption | App Service F1 | SQL serverless | Static Web Apps |
+|---|---|---|---|---|---|
+| **germanywestcentral** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| polandcentral, swedencentral, belgiumcentral, austriaeast | ❌ | ✅ | ✅ | ✅ | ❌ |
+
+Key Vault, Storage, Log Analytics and Application Insights exist in all five. Static Web Apps exists
+in none of them (only westus2, centralus, eastus2, westeurope, eastasia), so the frontend is a
+storage static website by default (`frontend_hosting = "storage"`).
 
 ## Usage
 

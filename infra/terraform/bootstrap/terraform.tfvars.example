@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars (git-ignored, the addresses are personal data) and fill in.
 
 # Same region as ../ (one the subscription allows).
-# location = "polandcentral"
+# location = "germanywestcentral"
 
 # Everyone except you. Use their school addresses: if the subscription lives in the university
 # directory they are found there; set invite = true for anyone from outside it.

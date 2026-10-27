@@ -12,7 +12,7 @@ variable "project" {
 variable "location" {
   description = "Region of the state storage account. Must be one of the regions the subscription allows (Azure for Students: see ../README.md)."
   type        = string
-  default     = "polandcentral"
+  default     = "germanywestcentral"
 }
 
 variable "team_members" {
