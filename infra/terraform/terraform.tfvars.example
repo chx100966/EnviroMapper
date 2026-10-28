@@ -2,10 +2,10 @@
 # in variables.tf are the cheapest working setup.
 
 # Pick one of the regions allowed for your subscription (Azure for Students: see README.md).
-# location = "polandcentral"
+# location = "germanywestcentral"
 
-# Static Web Apps fails with RequestDisallowedByAzure on many Azure for Students subscriptions.
-# frontend_hosting = "storage"
+# Static Web Apps instead of the storage static website, where the subscription allows it.
+# frontend_hosting = "static_web_app"
 
 # Your public IP, for connecting to SQL from Azure Data Studio / SSMS (curl -s https://ifconfig.me).
 # sql_firewall_allowed_ips = {

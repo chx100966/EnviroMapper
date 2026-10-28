@@ -1,4 +1,4 @@
-# `terraform test` runs fully offline: every provider is mocked, nothing is created in Azure.
+# `tofu test` runs fully offline: every provider is mocked, nothing is created in Azure.
 # Guards the cost model from README.md - a paid SKU should be a deliberate change to these tests.
 
 mock_provider "azurerm" {
@@ -70,6 +70,10 @@ mock_provider "time" {
 run "uses_only_free_or_scale_to_zero_tiers" {
   command = apply
 
+  variables {
+    frontend_hosting = "static_web_app"
+  }
+
   assert {
     condition     = azurerm_iothub.main.sku[0].name == "F1"
     error_message = "IoT Hub must stay on the free F1 tier."
@@ -106,16 +110,12 @@ run "uses_only_free_or_scale_to_zero_tiers" {
   }
 }
 
-run "storage_frontend_fallback" {
+run "storage_frontend_by_default" {
   command = apply
-
-  variables {
-    frontend_hosting = "storage"
-  }
 
   assert {
     condition     = length(azurerm_static_web_app.frontend) == 0 && length(azurerm_storage_account_static_website.frontend) == 1
-    error_message = "frontend_hosting = \"storage\" must replace the Static Web App with a storage static website."
+    error_message = "The default frontend_hosting = \"storage\" must use a storage static website, not a Static Web App."
   }
 
   assert {

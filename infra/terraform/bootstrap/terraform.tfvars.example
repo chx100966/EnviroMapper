@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars (git-ignored, the addresses are personal data) and fill in.
+
+# Same region as ../ (one the subscription allows).
+# location = "germanywestcentral"
+
+# Everyone except you. Use their school addresses: if the subscription lives in the university
+# directory they are found there; set invite = true for anyone from outside it.
+team_members = {
+  # alice = {
+  #   email = "alice@student.example.edu"
+  # }
+  # bob = {
+  #   email  = "bob@example.com"
+  #   invite = true
+  #   roles  = ["Contributor"] # can't run `tofu apply` in ../ (it creates role assignments)
+  # }
+}

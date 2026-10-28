@@ -21,7 +21,7 @@ terraform {
     }
   }
 
-  # Local state by default. Switch to a shared Azure Storage backend once more than one person
-  # runs `apply` — see README.md, section "Remote state".
-  # backend "azurerm" {}
+  # Shared state in the storage account created by bootstrap/; the settings are in backend.hcl
+  # (`tofu init -backend-config=backend.hcl`). See README.md, "Working as a team".
+  backend "azurerm" {}
 }
