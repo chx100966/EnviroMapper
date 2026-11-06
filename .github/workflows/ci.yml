@@ -114,8 +114,6 @@ jobs:
           overwrite: true
 
   ai:
-    # Off until the module has code again (ai/ is empty); the report shows it as skipped
-    if: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -126,12 +124,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      # Only lint/test tools — the full requirements.txt (torch etc.) isn't needed yet
+      # Simulator dependencies + lint/test tools (requirements-dev.txt includes requirements.txt)
       - name: Install tools
         id: install
         run: |
           mkdir -p "$REPORT_DIR"
-          pip install ruff pytest
+          pip install -r requirements-dev.txt
       - name: Lint
         id: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
