@@ -19,6 +19,8 @@ locals {
     iothub          = "iot-${local.base}-${local.suffix}"
     sql_server      = "sql-${local.base}-${local.suffix}"
     sql_database    = "sqldb-${var.project}"
+    cosmos_account  = "cosmos-${local.base}-${local.suffix}"
+    cosmos_database = var.project
     storage_account = "st${var.project}${var.environment}${local.suffix}"
     key_vault       = "kv-${var.project}-${local.suffix}"
     api_plan        = "asp-${local.base}-api"

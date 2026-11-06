@@ -126,6 +126,47 @@ variable "sql_firewall_allowed_ips" {
   default     = {}
 }
 
+# --- Telemetry store (Cosmos DB) -------------------------------------------------
+
+variable "cosmos_capacity_mode" {
+  description = "\"free_tier\" (1000 RU/s + 25 GB free, one account per subscription, chosen at creation) or \"serverless\" (pay per request - fallback when the subscription already has a free tier account). Changing it recreates the account and its data."
+  type        = string
+  default     = "free_tier"
+
+  validation {
+    condition     = contains(["free_tier", "serverless"], var.cosmos_capacity_mode)
+    error_message = "cosmos_capacity_mode must be \"free_tier\" or \"serverless\"."
+  }
+}
+
+variable "cosmos_database_throughput" {
+  description = "RU/s shared by the containers of the database (free tier only). The free tier covers up to 1000; the account refuses anything above that."
+  type        = number
+  default     = 1000
+
+  validation {
+    condition     = var.cosmos_database_throughput >= 400 && var.cosmos_database_throughput <= 1000 && var.cosmos_database_throughput % 100 == 0
+    error_message = "cosmos_database_throughput must be 400-1000 RU/s in steps of 100."
+  }
+}
+
+variable "cosmos_telemetry_ttl_days" {
+  description = "Days after which raw telemetry documents are deleted. null keeps them forever - at ~8,000 messages a day the 25 GB free storage lasts for years."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.cosmos_telemetry_ttl_days == null ? true : var.cosmos_telemetry_ttl_days >= 1
+    error_message = "cosmos_telemetry_ttl_days must be at least 1 (or null)."
+  }
+}
+
+variable "telemetry_store_condition" {
+  description = "IoT Hub routing query a device message has to match to be stored in Cosmos DB; every message still reaches the built-in endpoint. Body fields are only visible in messages sent with contentType application/json and contentEncoding UTF-8. Keep it in step with the telemetry JSON schema."
+  type        = string
+  default     = "IS_STRING($body.deviceId) AND IS_STRING($body.timestamp)"
+}
+
 # --- Cost guards ----------------------------------------------------------------
 
 variable "log_daily_quota_gb" {

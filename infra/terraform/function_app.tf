@@ -49,6 +49,11 @@ resource "azurerm_function_app_flex_consumption" "processor" {
     "SQL_PASSWORD" = local.key_vault_references["sql-admin-password"]
 
     "MODELS_CONTAINER_URL" = "${azurerm_storage_account.main.primary_blob_endpoint}${azurerm_storage_container.models.name}"
+
+    # Raw telemetry history (read-only, managed identity - see cosmos.tf).
+    "COSMOS_ENDPOINT"  = azurerm_cosmosdb_account.main.endpoint
+    "COSMOS_DATABASE"  = azurerm_cosmosdb_sql_database.main.name
+    "COSMOS_CONTAINER" = azurerm_cosmosdb_sql_container.telemetry.name
   }
 
   tags = local.tags

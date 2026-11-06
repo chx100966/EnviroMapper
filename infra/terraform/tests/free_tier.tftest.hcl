@@ -47,6 +47,36 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kv-test"
     }
   }
+
+  mock_resource "azurerm_iothub" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Devices/iotHubs/iot-test"
+    }
+  }
+
+  # Cosmos DB role assignments only accept UUIDs as principal IDs.
+  mock_resource "azurerm_linux_web_app" {
+    defaults = {
+      identity = {
+        principal_id = "00000000-0000-0000-0000-000000000003"
+      }
+    }
+  }
+
+  mock_resource "azurerm_function_app_flex_consumption" {
+    defaults = {
+      identity = {
+        principal_id = "00000000-0000-0000-0000-000000000004"
+      }
+    }
+  }
+
+  mock_resource "azurerm_cosmosdb_account" {
+    defaults = {
+      id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos-test"
+      endpoint = "https://cosmos-test.documents.azure.com:443/"
+    }
+  }
 }
 
 mock_provider "azapi" {}
@@ -95,6 +125,16 @@ run "uses_only_free_or_scale_to_zero_tiers" {
   }
 
   assert {
+    condition     = azurerm_cosmosdb_account.main.free_tier_enabled && one(azurerm_cosmosdb_account.main.capacity).total_throughput_limit == 1000
+    error_message = "Cosmos DB must use the free tier and refuse throughput beyond its 1000 RU/s."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_database.main.throughput <= 1000
+    error_message = "The database's shared throughput must stay within the free 1000 RU/s."
+  }
+
+  assert {
     condition     = azurerm_static_web_app.frontend[0].sku_tier == "Free"
     error_message = "The Static Web App must stay on the Free plan."
   }
@@ -134,5 +174,53 @@ run "budget_with_contacts" {
   assert {
     condition     = azurerm_consumption_budget_resource_group.main[0].time_period[0].start_date == "2026-10-01T00:00:00Z"
     error_message = "The budget must start on the first day of the month of the first apply."
+  }
+}
+
+run "telemetry_reaches_cosmos_and_the_builtin_endpoint" {
+  command = apply
+
+  assert {
+    condition     = azurerm_iothub_route.builtin.endpoint_names == tolist(["events"]) && azurerm_iothub_route.builtin.condition == "true" && azurerm_iothub_route.builtin.enabled
+    error_message = "Every device message must still reach the built-in endpoint (Function App trigger) once custom routes exist."
+  }
+
+  assert {
+    condition     = azurerm_iothub_route.cosmos.endpoint_names == tolist([azurerm_iothub_endpoint_cosmosdb_account.telemetry.name]) && azurerm_iothub_route.cosmos.condition == var.telemetry_store_condition
+    error_message = "Messages matching telemetry_store_condition must be routed to the Cosmos DB endpoint."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.partition_key_paths == tolist(["/${azurerm_iothub_endpoint_cosmosdb_account.telemetry.partition_key_name}"])
+    error_message = "The container's partition key must be the property IoT Hub fills from the partition key template."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.default_ttl == null
+    error_message = "Raw telemetry must be kept forever unless cosmos_telemetry_ttl_days is set."
+  }
+}
+
+run "cosmos_serverless_fallback" {
+  command = apply
+
+  variables {
+    cosmos_capacity_mode      = "serverless"
+    cosmos_telemetry_ttl_days = 90
+  }
+
+  assert {
+    condition     = !azurerm_cosmosdb_account.main.free_tier_enabled && contains([for c in azurerm_cosmosdb_account.main.capabilities : c.name], "EnableServerless")
+    error_message = "cosmos_capacity_mode = \"serverless\" must create a serverless account without the free tier."
+  }
+
+  assert {
+    condition     = length(azurerm_cosmosdb_account.main.capacity) == 0
+    error_message = "A serverless account takes no total throughput limit."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.default_ttl == 90 * 86400
+    error_message = "cosmos_telemetry_ttl_days must set the container's default TTL in seconds."
   }
 }
