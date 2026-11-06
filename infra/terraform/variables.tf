@@ -181,9 +181,9 @@ variable "cosmos_telemetry_ttl_days" {
 }
 
 variable "telemetry_store_condition" {
-  description = "IoT Hub routing query a device message has to match to be stored in Cosmos DB; every message still reaches the built-in endpoint. Body fields are only visible in messages sent with contentType application/json and contentEncoding UTF-8. Keep it in step with the telemetry JSON schema."
+  description = "IoT Hub routing query a device message has to match to be stored in Cosmos DB; every message still reaches the built-in endpoint. Body fields are only visible in messages sent with contentType application/json and contentEncoding UTF-8. The default is the structure of schemas/telemetry/v1.schema.json - a coarse check, the Function App validates the whole schema."
   type        = string
-  default     = "IS_STRING($body.deviceId) AND IS_STRING($body.timestamp)"
+  default     = "$body.schemaVersion = 1 AND IS_STRING($body.messageId) AND IS_STRING($body.deviceId) AND IS_STRING($body.timestamp) AND IS_OBJECT($body.readings) AND ($body.mode = 'agriculture' OR $body.mode = 'industry' OR $body.mode = 'weather')"
 }
 
 # --- Cost guards ----------------------------------------------------------------

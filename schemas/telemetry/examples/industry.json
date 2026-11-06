@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "messageId": "0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70",
+  "deviceId": "sim-industry-01",
+  "mode": "industry",
+  "timestamp": "2026-11-06T20:15:30.456Z",
+  "readings": {
+    "vibration": 3.82,
+    "temperature": 67.15,
+    "pressure": 6.04
+  }
+}

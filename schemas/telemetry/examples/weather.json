@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "messageId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "deviceId": "sim-weather-01",
+  "mode": "weather",
+  "timestamp": "2026-11-06T20:15:30.789Z",
+  "readings": {
+    "temperature": 8.6,
+    "pressure": 1012.3,
+    "wind_speed": 17.25
+  }
+}

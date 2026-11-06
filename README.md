@@ -35,6 +35,7 @@ EnviroMapper/
 ├── frontend/         # React + TypeScript SPA
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
 ├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
+├── schemas/          # Shared data contracts, e.g. the telemetry message format (schemas/telemetry/)
 └── docs/             # Documentation, mockups, diagrams
 ```
 
