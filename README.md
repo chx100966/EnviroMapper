@@ -57,8 +57,9 @@ Key Azure components:
 - OpenTofu 1.11+ (infrastructure only)
 - Docker (optional)
 
-`backend/`, `frontend/` and `ai/` are still empty; run instructions come with the first code in
-each module. The infrastructure is described in [infra/terraform/README.md](infra/terraform/README.md).
+`backend/` and `frontend/` are still empty; run instructions come with the first code in each
+module. `ai/` has the IoT device simulator ([ai/README.md](ai/README.md)), and the infrastructure is
+described in [infra/terraform/README.md](infra/terraform/README.md).
 
 ---
 

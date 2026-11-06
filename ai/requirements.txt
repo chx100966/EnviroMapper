@@ -1,0 +1,3 @@
+# Simulator (simulators/). The analytics models will add theirs (torch, pandas, ...) when they arrive.
+azure-iot-device>=2.14,<3
+python-dotenv>=1.0

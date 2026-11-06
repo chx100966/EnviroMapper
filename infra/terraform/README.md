@@ -157,7 +157,8 @@ in the state, which is why it sits in a storage account only the team can read, 
 - **Simulator devices** register themselves through DPS. Every mode has an enrollment group
   (`agriculture`, `industry`, `weather`, see `dps_enrollment_groups`); a device's key is derived from
   the group key and its registration ID, e.g. `sim-agriculture-01`, and the device starts with the
-  twin tag `mode` of its group. To get a device's settings and try the registration without code:
+  twin tag `mode` of its group. The simulator does all of this itself — [ai/README.md](../../ai/README.md)
+  has the script that writes the ID scope and group keys into `ai/.env`. To check DPS without code:
 
   ```bash
   az extension add --name azure-iot
@@ -170,11 +171,9 @@ in the state, which is why it sits in a storage account only the team can read, 
     --registration-id sim-agriculture-01 --key "$GROUP_KEY" --compute-key
   ```
 
-  Keep the ID scope, registration ID and device key in `ai/.env`. In code (`azure-iot-device`),
-  `ProvisioningDeviceClient.create_from_symmetric_key(...)` with the host
-  `global.azure-devices-provisioning.net` returns the assigned hub and device ID, and
-  `IoTHubDeviceClient.create_from_symmetric_key(...)` connects with them (MQTT by default).
-  IoT Hub stamps every message on the built-in endpoint with the application property `mode`.
+  In code, [ai/simulators/connection.py](../../ai/simulators/connection.py) shows the flow with
+  `azure-iot-device`. IoT Hub stamps every message on the built-in endpoint with the application
+  property `mode`.
 - **Enrollment groups without bash** (`dps_manage_enrollment_groups = false`): run
   [scripts/dps-enrollment-group.sh](scripts/dps-enrollment-group.sh) from any machine with bash,
   with the variables listed at its top (the connection string of the DPS policy
