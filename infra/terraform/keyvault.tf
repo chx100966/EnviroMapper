@@ -11,12 +11,12 @@ resource "azurerm_key_vault" "main" {
   sku_name                   = "standard"
   rbac_authorization_enabled = true
   soft_delete_retention_days = 7
-  # Off so `terraform destroy` can purge the vault; turn on for anything long-lived.
+  # Off so `tofu destroy` can purge the vault; turn on for anything long-lived.
   purge_protection_enabled = false
   tags                     = local.tags
 }
 
-# Lets the identity running Terraform write the secrets below.
+# Lets the identity running OpenTofu write the secrets below.
 resource "azurerm_role_assignment" "kv_deployer" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets Officer"

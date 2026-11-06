@@ -22,9 +22,9 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first."
+  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first. Of the five our subscription allows, only germanywestcentral has IoT Hub (see README.md)."
   type        = string
-  default     = "polandcentral"
+  default     = "germanywestcentral"
 }
 
 variable "tags" {
@@ -36,9 +36,9 @@ variable "tags" {
 # --- Frontend ----------------------------------------------------------------
 
 variable "frontend_hosting" {
-  description = "How the React SPA is hosted: \"static_web_app\" (Static Web Apps Free) or \"storage\" (Storage static website - fallback when Static Web Apps is blocked, which happens on Azure for Students)."
+  description = "How the React SPA is hosted: \"static_web_app\" (Static Web Apps Free) or \"storage\" (Storage static website - fallback when Static Web Apps is blocked, which happens on Azure for Students). Storage by default: Static Web Apps only exists in regions our subscription doesn't allow."
   type        = string
-  default     = "static_web_app"
+  default     = "storage"
 
   validation {
     condition     = contains(["static_web_app", "storage"], var.frontend_hosting)

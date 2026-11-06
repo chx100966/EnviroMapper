@@ -16,10 +16,11 @@ resource "azurerm_mssql_server" "main" {
   administrator_login_password = random_password.sql_admin.result
   minimum_tls_version          = "1.2"
 
-  # Whoever runs `terraform apply` becomes the Entra ID admin, so the team can sign in with
-  # their Azure account (Azure Data Studio / SSMS / sqlcmd -G) instead of sharing the password.
+  # Whoever runs `tofu apply` becomes the Entra ID admin, so they can sign in with their Azure
+  # account (Azure Data Studio / SSMS / sqlcmd -G) instead of sharing the password. It changes hands
+  # when someone else applies - see README.md, "Working as a team".
   azuread_administrator {
-    login_username = "terraform-deployer"
+    login_username = "tofu-deployer"
     object_id      = data.azurerm_client_config.current.object_id
   }
 
