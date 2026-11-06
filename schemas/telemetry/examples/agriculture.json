@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "messageId": "6f1c2a8e-3b4d-4e5f-9a7b-1c2d3e4f5a6b",
+  "deviceId": "sim-agriculture-01",
+  "mode": "agriculture",
+  "timestamp": "2026-11-06T20:15:30.123Z",
+  "readings": {
+    "soil_moisture": 41.27,
+    "temperature": 12.4,
+    "humidity": 78.9
+  }
+}
