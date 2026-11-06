@@ -15,3 +15,6 @@
 # Budget alerts for the resource group (amount in the billing currency).
 # budget_contact_emails = ["alice@example.com"]
 # budget_amount         = 10
+
+# The subscription already has a free tier Cosmos DB account (only one is allowed): pay per request.
+# cosmos_capacity_mode = "serverless"

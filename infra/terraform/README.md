@@ -5,13 +5,15 @@ hours at a time, no production load. Every component is either free-tier or scal
 **nothing has to be stopped between sessions** — an idle environment costs close to $0.
 
 ```
- devices / ai/simulators ──MQTT/AMQP──▶ IoT Hub (F1)
+ devices / ai/simulators ──MQTT/AMQP──▶ IoT Hub (F1) ──route "telemetry-to-cosmos"──▶ Cosmos DB (free tier)
+                                           │             (valid JSON telemetry only)    raw telemetry
+                                           │ route "telemetry-to-builtin" (every message):
                                            │ built-in endpoint, consumer group "functions"
                                            ▼
                               Function App (Flex Consumption, Python)
                               validation + anomaly detection ──▶ Azure SQL (free offer, serverless)
                                                                           ▲
- browser ──▶ Static Web App (React SPA) ──HTTPS──▶ App Service F1 (.NET API)
+ browser ──▶ Static Web App (React SPA) ──HTTPS──▶ App Service F1 (.NET API) ──▶ reads Cosmos DB too
 
  Key Vault (secrets, read via managed identities) · Storage (function host, models)
  Log Analytics + Application Insights (capped)    · Budget alert on the resource group
@@ -24,6 +26,7 @@ hours at a time, no production load. Every component is either free-tier or scal
 | Device ingestion | IoT Hub **F1** | 8,000 messages/day (0.5 KB each), 500 devices, one F1 hub per subscription | $0 |
 | Telemetry processing | Functions **Flex Consumption**, 512 MB, max 2 instances | 100,000 GB-s + 250,000 executions/month | $0 (≈ $1 if the grant doesn't apply, see below) |
 | Database | Azure SQL **free offer**, serverless `GP_S_Gen5_1` (0.5–1 vCore), 32 GB | 100,000 vCore-seconds/month ≈ 30–40 h online | $0 (pauses when used up) |
+| Raw telemetry | Cosmos DB **free tier** (NoSQL API), 1000 RU/s shared by the database, one region | 1000 RU/s + 25 GB for the account's lifetime, one free tier account per subscription | $0 |
 | Backend API | App Service **F1** Linux | 60 CPU-minutes/day, 1 GB RAM, 165 MB outbound/day | $0 |
 | Frontend | Static Web Apps **Free** (or Storage static website) | 100 GB bandwidth/month | $0 |
 | Secrets | Key Vault Standard | — | < $0.01 |
@@ -54,6 +57,14 @@ of that tick; a handful of users (the team and the supervisor).
   *Free amount remaining* metric on the database. When the allowance is gone the database stays
   paused until the 1st of the next month; switching it to *continue with charges* is irreversible
   (then $0.57 per vCore-hour).
+- **Cosmos DB free tier: one account per subscription,** chosen when the account is created. If the
+  subscription already has one (`az cosmosdb list --query "[?enableFreeTier].name"`), the apply
+  fails — set `cosmos_capacity_mode = "serverless"` instead: $0.305 per million RU, and writing
+  ~8,000 documents of ~1 KB a day costs roughly 1.5–2 million RU a month ≈ $0.50, plus $0.25 per GB
+  stored. Storage is not the limit: at that rate the free 25 GB lasts for years
+  (`cosmos_telemetry_ttl_days` deletes old documents if it ever matters). The account refuses any
+  throughput beyond the free 1000 RU/s, so new containers go into the existing database, whose RU/s
+  they share.
 - **App Service F1:** over the CPU or bandwidth quota the API returns 403 until midnight UTC;
   after ~20 idle minutes the app unloads and the next request has a cold start. No Always On, so
   background workers don't belong in the API — telemetry is read by the Function App.
@@ -139,6 +150,16 @@ in the state, which is why it sits in a storage account only the team can read, 
   `az iot hub device-identity create --hub-name "$(tofu output -raw iothub_name)" --device-id sim-agriculture-01`
   and `az iot hub device-identity connection-string show` with the same arguments. Keep the device
   connection string in `ai/.env`.
+- **Telemetry ingest:** devices have to send JSON with the content type `application/json` and the
+  content encoding `UTF-8` (Python SDK: `Message(json.dumps(reading), content_encoding="utf-8",
+  content_type="application/json")`). Without them IoT Hub can't read the body, the
+  `telemetry-to-cosmos` condition (`telemetry_store_condition`, by default `deviceId` and
+  `timestamp` must be strings) is false and the message only reaches the built-in endpoint. Stored
+  documents are in the portal under the Cosmos DB account → *Data Explorer* → database
+  `enviromapper` → `telemetry`.
+- **Reading telemetry from notebooks or scripts** (`ai/`): the read-only key comes from
+  `az cosmosdb keys list --name "$(tofu output -raw cosmos_account_name)" --resource-group "$(tofu output -raw resource_group_name)" --type read-only-keys`;
+  the apps use their managed identities instead (Cosmos DB Built-in Data Reader).
 - **Frontend deploys:** `tofu output -raw static_web_app_deployment_token` goes into the
   GitHub secret used by the Static Web Apps deploy action.
 - **Code deploys** (`az webapp deploy`, `func azure functionapp publish`) aren't part of this
@@ -192,13 +213,22 @@ environment, or switch the SQL admin to an Entra ID group.
 ## Tear down
 
 `tofu destroy` removes everything, including the Key Vault (purge protection is off on
-purpose), and frees the subscription's F1 IoT Hub slot. A free-offer SQL database slot can take up
-to an hour to become available again.
+purpose), and frees the subscription's F1 IoT Hub and Cosmos DB free tier slots. A free-offer SQL
+database slot can take up to an hour to become available again.
 
 ## Design decisions
 
 - **azurerm + azapi:** azurerm 5.9 can't enable the SQL free offer (`useFreeLimit`), and the offer
   can only be chosen when the database is created, so that one resource uses azapi.
+- **Cosmos DB for raw telemetry, SQL for the relational data** (devices, users, detected anomalies).
+  IoT Hub writes every valid message to Cosmos DB through message routing, without any code, and
+  writes cost a few RU each. Storing every reading in SQL would keep the serverless database awake
+  for the whole simulation and burn its monthly free allowance in a few days of use.
+- **Ingest validation in the route:** only messages matching `telemetry_store_condition` are stored;
+  the rest still reach the Function App through the built-in endpoint, so it can log or reject them.
+  The detailed checks belong to the telemetry JSON schema and the Function App.
+- **Key-based Cosmos DB routing endpoint:** identity-based auth would need a data role for the hub's
+  identity in place before the endpoint works. The apps themselves use managed identities.
 - **Flex Consumption** instead of the Linux Consumption plan, which retires on 2028-09-30.
 - **Serverless SQL with auto-pause** costs nothing while idle; the price is a resume delay of up to
   a minute, which clients absorb with retry logic (EF Core `EnableRetryOnFailure`).
@@ -211,4 +241,5 @@ to an hour to become available again.
   .NET 10 together with the code (`api_dotnet_version = "10.0"`).
 
 Not covered yet: CI/CD deployments to Azure, Entra ID (passwordless) access from the apps to SQL,
-alerts on the IoT Hub daily quota and the SQL free allowance.
+alerts on the IoT Hub daily quota and the SQL free allowance. The SQL schema is not part of the
+infrastructure: it comes with the backend's EF Core migrations.

@@ -7,6 +7,7 @@ provider "azurerm" {
   resource_providers_to_register = [
     "Microsoft.Consumption",
     "Microsoft.Devices",
+    "Microsoft.DocumentDB",
     "Microsoft.Insights",
     "Microsoft.KeyVault",
     "Microsoft.OperationalInsights",

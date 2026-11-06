@@ -35,6 +35,19 @@ output "sql_database_name" {
   value = azapi_resource.sql_database.name
 }
 
+output "cosmos_account_name" {
+  value = azurerm_cosmosdb_account.main.name
+}
+
+output "cosmos_endpoint" {
+  description = "Raw telemetry: database cosmos_database_name, container \"telemetry\"."
+  value       = azurerm_cosmosdb_account.main.endpoint
+}
+
+output "cosmos_database_name" {
+  value = azurerm_cosmosdb_sql_database.main.name
+}
+
 output "key_vault_name" {
   value = azurerm_key_vault.main.name
 }
