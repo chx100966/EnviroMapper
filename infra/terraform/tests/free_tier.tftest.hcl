@@ -97,6 +97,12 @@ mock_provider "time" {
   }
 }
 
+# The DPS enrollment groups are created by a local-exec script (Azure CLI), which `tofu test` would
+# run for real even with mocked providers.
+variables {
+  dps_manage_enrollment_groups = false
+}
+
 run "uses_only_free_or_scale_to_zero_tiers" {
   command = apply
 
@@ -107,6 +113,11 @@ run "uses_only_free_or_scale_to_zero_tiers" {
   assert {
     condition     = azurerm_iothub.main.sku[0].name == "F1"
     error_message = "IoT Hub must stay on the free F1 tier."
+  }
+
+  assert {
+    condition     = azurerm_iothub_dps.main.sku[0].name == "S1" && azurerm_iothub_dps.main.sku[0].capacity == 1
+    error_message = "DPS must stay on a single S1 unit (billed per operation only)."
   }
 
   assert {
@@ -222,5 +233,53 @@ run "cosmos_serverless_fallback" {
   assert {
     condition     = azurerm_cosmosdb_sql_container.telemetry.default_ttl == 90 * 86400
     error_message = "cosmos_telemetry_ttl_days must set the container's default TTL in seconds."
+  }
+}
+
+run "devices_provision_through_dps" {
+  command = apply
+
+  assert {
+    condition     = one(azurerm_iothub_dps.main.linked_hub).connection_string == azurerm_iothub_shared_access_policy.dps.primary_connection_string
+    error_message = "DPS must be linked to the IoT Hub."
+  }
+
+  assert {
+    condition     = azurerm_iothub_shared_access_policy.dps.registry_write && azurerm_iothub_shared_access_policy.dps.service_connect && azurerm_iothub_shared_access_policy.dps.device_connect
+    error_message = "The policy DPS links with needs RegistryWrite, ServiceConnect and DeviceConnect."
+  }
+
+  assert {
+    condition     = length(terraform_data.dps_enrollment_group) == 0 && length(random_bytes.dps_group_key) == 3
+    error_message = "With dps_manage_enrollment_groups = false no script runs, but every group still gets a key."
+  }
+
+  assert {
+    condition     = alltrue([for group in ["agriculture", "industry", "weather"] : contains(keys(azurerm_key_vault_secret.app), "dps-enrollment-key-${group}")])
+    error_message = "Each enrollment group key must be stored in Key Vault."
+  }
+
+  assert {
+    condition     = azurerm_iothub_enrichment.mode.value == "$twin.tags.mode" && azurerm_iothub_enrichment.mode.endpoint_names == tolist(["events"])
+    error_message = "Telemetry on the built-in endpoint must carry the device's mode from its twin tag."
+  }
+}
+
+# plan only: provisioners run on apply.
+run "enrollment_groups_are_managed_by_default" {
+  command = plan
+
+  variables {
+    dps_manage_enrollment_groups = true
+  }
+
+  assert {
+    condition     = toset(keys(terraform_data.dps_enrollment_group)) == toset(["agriculture", "industry", "weather"])
+    error_message = "Every simulator mode must get an enrollment group."
+  }
+
+  assert {
+    condition     = terraform_data.dps_enrollment_group["industry"].triggers_replace.twin_tags == jsonencode({ mode = "industry" })
+    error_message = "Devices of a group must start with the twin tag mode = <group>."
   }
 }

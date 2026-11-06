@@ -52,6 +52,25 @@ variable "static_web_app_location" {
   default     = "westeurope"
 }
 
+# --- Device provisioning (DPS) ---------------------------------------------------
+
+variable "dps_enrollment_groups" {
+  description = "One symmetric-key enrollment group per simulator mode. Devices registered through a group start with the twin tag mode = <group>, which IoT Hub stamps on their telemetry."
+  type        = list(string)
+  default     = ["agriculture", "industry", "weather"]
+
+  validation {
+    condition     = alltrue([for g in var.dps_enrollment_groups : can(regex("^[a-z0-9-]{1,128}$", g))])
+    error_message = "Enrollment group IDs may only contain lowercase letters, digits and hyphens."
+  }
+}
+
+variable "dps_manage_enrollment_groups" {
+  description = "Create and update the enrollment groups during apply. Needs bash and the Azure CLI on the machine that runs apply (the azure-iot extension is added if missing). With false, create them by hand - see README.md."
+  type        = bool
+  default     = true
+}
+
 # --- Backend API (App Service) -------------------------------------------------
 
 variable "api_dotnet_version" {
