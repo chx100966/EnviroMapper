@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chx100966/EnviroMapper/blob/main/schemas/telemetry/v1.schema.json",
+  "title": "EnviroMapper device telemetry, version 1",
+  "description": "Body of one device-to-cloud message: all readings a device took at one moment. Sent as UTF-8 JSON with contentType application/json and contentEncoding utf-8. See README.md in this directory.",
+  "type": "object",
+  "required": ["schemaVersion", "messageId", "deviceId", "mode", "timestamp", "readings"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "description": "Major version of this schema. Changes that break consumers get a new version and a new file.",
+      "const": 1
+    },
+    "messageId": {
+      "description": "Random UUID (lowercase) of this message, also sent as the message-id system property. Lets consumers drop duplicates of a retried send.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "deviceId": {
+      "description": "Device ID in IoT Hub, which is the DPS registration ID (e.g. sim-agriculture-01). Has to match the iothub-connection-device-id the hub stamps on the message.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "mode": {
+      "description": "Operating mode of the device. Decides which readings are allowed. Has to match the device's twin tag mode, set by its DPS enrollment group.",
+      "enum": ["agriculture", "industry", "weather"]
+    },
+    "timestamp": {
+      "description": "When the readings were taken, by the device clock: RFC 3339 in UTC (Z), at most microsecond precision.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$"
+    },
+    "readings": {
+      "description": "Sensor type -> measured value in the sensor's unit (x-unit). Sensors that failed to read are left out; at least one reading is required. The allowed sensors depend on mode.",
+      "type": "object",
+      "minProperties": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "mode": { "const": "agriculture" } }, "required": ["mode"] },
+      "then": { "properties": { "readings": { "$ref": "#/$defs/agricultureReadings" } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "industry" } }, "required": ["mode"] },
+      "then": { "properties": { "readings": { "$ref": "#/$defs/industryReadings" } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "weather" } }, "required": ["mode"] },
+      "then": { "properties": { "readings": { "$ref": "#/$defs/weatherReadings" } } }
+    }
+  ],
+  "$defs": {
+    "agricultureReadings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "soil_moisture": {
+          "description": "Volumetric soil moisture.",
+          "x-unit": "%",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "temperature": {
+          "description": "Air temperature at the crop.",
+          "x-unit": "°C",
+          "type": "number",
+          "minimum": -40,
+          "maximum": 60
+        },
+        "humidity": {
+          "description": "Relative air humidity.",
+          "x-unit": "%",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "industryReadings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vibration": {
+          "description": "Vibration velocity (RMS) of the machine.",
+          "x-unit": "mm/s",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "temperature": {
+          "description": "Machine (bearing/housing) temperature.",
+          "x-unit": "°C",
+          "type": "number",
+          "minimum": -40,
+          "maximum": 200
+        },
+        "pressure": {
+          "description": "Process pressure, gauge.",
+          "x-unit": "bar",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 25
+        }
+      }
+    },
+    "weatherReadings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperature": {
+          "description": "Air temperature.",
+          "x-unit": "°C",
+          "type": "number",
+          "minimum": -50,
+          "maximum": 60
+        },
+        "pressure": {
+          "description": "Atmospheric pressure reduced to sea level.",
+          "x-unit": "hPa",
+          "type": "number",
+          "minimum": 850,
+          "maximum": 1100
+        },
+        "wind_speed": {
+          "description": "Mean wind speed.",
+          "x-unit": "km/h",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 300
+        }
+      }
+    }
+  }
+}

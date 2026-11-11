@@ -22,9 +22,9 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first."
+  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first. Of the five our subscription allows, only germanywestcentral has IoT Hub (see README.md)."
   type        = string
-  default     = "polandcentral"
+  default     = "germanywestcentral"
 }
 
 variable "tags" {
@@ -36,9 +36,9 @@ variable "tags" {
 # --- Frontend ----------------------------------------------------------------
 
 variable "frontend_hosting" {
-  description = "How the React SPA is hosted: \"static_web_app\" (Static Web Apps Free) or \"storage\" (Storage static website - fallback when Static Web Apps is blocked, which happens on Azure for Students)."
+  description = "How the React SPA is hosted: \"static_web_app\" (Static Web Apps Free) or \"storage\" (Storage static website - fallback when Static Web Apps is blocked, which happens on Azure for Students). Storage by default: Static Web Apps only exists in regions our subscription doesn't allow."
   type        = string
-  default     = "static_web_app"
+  default     = "storage"
 
   validation {
     condition     = contains(["static_web_app", "storage"], var.frontend_hosting)
@@ -50,6 +50,25 @@ variable "static_web_app_location" {
   description = "Region of the Static Web App resource (metadata only, content is served globally). Static Web Apps exists only in westus2, centralus, eastus2, westeurope and eastasia."
   type        = string
   default     = "westeurope"
+}
+
+# --- Device provisioning (DPS) ---------------------------------------------------
+
+variable "dps_enrollment_groups" {
+  description = "One symmetric-key enrollment group per simulator mode. Devices registered through a group start with the twin tag mode = <group>, which IoT Hub stamps on their telemetry."
+  type        = list(string)
+  default     = ["agriculture", "industry", "weather"]
+
+  validation {
+    condition     = alltrue([for g in var.dps_enrollment_groups : can(regex("^[a-z0-9-]{1,128}$", g))])
+    error_message = "Enrollment group IDs may only contain lowercase letters, digits and hyphens."
+  }
+}
+
+variable "dps_manage_enrollment_groups" {
+  description = "Create and update the enrollment groups during apply. Needs bash and the Azure CLI on the machine that runs apply (the azure-iot extension is added if missing). With false, create them by hand - see README.md."
+  type        = bool
+  default     = true
 }
 
 # --- Backend API (App Service) -------------------------------------------------
@@ -124,6 +143,47 @@ variable "sql_firewall_allowed_ips" {
   description = "Public IPv4 addresses allowed to connect to SQL directly (e.g. developer machines), as name => IP."
   type        = map(string)
   default     = {}
+}
+
+# --- Telemetry store (Cosmos DB) -------------------------------------------------
+
+variable "cosmos_capacity_mode" {
+  description = "\"free_tier\" (1000 RU/s + 25 GB free, one account per subscription, chosen at creation) or \"serverless\" (pay per request - fallback when the subscription already has a free tier account). Changing it recreates the account and its data."
+  type        = string
+  default     = "free_tier"
+
+  validation {
+    condition     = contains(["free_tier", "serverless"], var.cosmos_capacity_mode)
+    error_message = "cosmos_capacity_mode must be \"free_tier\" or \"serverless\"."
+  }
+}
+
+variable "cosmos_database_throughput" {
+  description = "RU/s shared by the containers of the database (free tier only). The free tier covers up to 1000; the account refuses anything above that."
+  type        = number
+  default     = 1000
+
+  validation {
+    condition     = var.cosmos_database_throughput >= 400 && var.cosmos_database_throughput <= 1000 && var.cosmos_database_throughput % 100 == 0
+    error_message = "cosmos_database_throughput must be 400-1000 RU/s in steps of 100."
+  }
+}
+
+variable "cosmos_telemetry_ttl_days" {
+  description = "Days after which raw telemetry documents are deleted. null keeps them forever - at ~8,000 messages a day the 25 GB free storage lasts for years."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.cosmos_telemetry_ttl_days == null ? true : var.cosmos_telemetry_ttl_days >= 1
+    error_message = "cosmos_telemetry_ttl_days must be at least 1 (or null)."
+  }
+}
+
+variable "telemetry_store_condition" {
+  description = "IoT Hub routing query a device message has to match to be stored in Cosmos DB; every message still reaches the built-in endpoint. Body fields are only visible in messages sent with contentType application/json and contentEncoding UTF-8. The default is the structure of schemas/telemetry/v1.schema.json - a coarse check, the Function App validates the whole schema."
+  type        = string
+  default     = "$body.schemaVersion = 1 AND IS_STRING($body.messageId) AND IS_STRING($body.deviceId) AND IS_STRING($body.timestamp) AND IS_OBJECT($body.readings) AND ($body.mode = 'agriculture' OR $body.mode = 'industry' OR $body.mode = 'weather')"
 }
 
 # --- Cost guards ----------------------------------------------------------------

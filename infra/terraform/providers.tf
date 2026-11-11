@@ -7,6 +7,7 @@ provider "azurerm" {
   resource_providers_to_register = [
     "Microsoft.Consumption",
     "Microsoft.Devices",
+    "Microsoft.DocumentDB",
     "Microsoft.Insights",
     "Microsoft.KeyVault",
     "Microsoft.OperationalInsights",
@@ -17,8 +18,8 @@ provider "azurerm" {
 
   features {
     application_insights {
-      # Otherwise Azure adds a "Failure Anomalies" alert rule that Terraform doesn't manage and that
-      # blocks `terraform destroy` of the resource group.
+      # Otherwise Azure adds a "Failure Anomalies" alert rule that OpenTofu doesn't manage and that
+      # blocks `tofu destroy` of the resource group.
       disable_generated_rule = true
     }
 

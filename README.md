@@ -34,7 +34,8 @@ EnviroMapper/
 ├── backend/          # C# .NET 8 Web API
 ├── frontend/         # React + TypeScript SPA
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
-├── infra/            # Microsoft Azure — Terraform IaC (see infra/terraform/README.md)
+├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
+├── schemas/          # Shared data contracts, e.g. the telemetry message format (schemas/telemetry/)
 └── docs/             # Documentation, mockups, diagrams
 ```
 
@@ -53,30 +54,12 @@ Key Azure components:
 - Node.js 20+
 - Python 3.11+
 - Azure CLI
-- Terraform 1.11+ (infrastructure only)
+- OpenTofu 1.11+ (infrastructure only)
 - Docker (optional)
 
-### Backend
-```bash
-cd backend/src/EnviroMapper.API
-dotnet restore
-dotnet run
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### AI / IoT Simulator
-```bash
-cd ai
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python simulators/run_simulator.py --mode agriculture
-```
+`backend/` and `frontend/` are still empty; run instructions come with the first code in each
+module. `ai/` has the IoT device simulator ([ai/README.md](ai/README.md)), and the infrastructure is
+described in [infra/terraform/README.md](infra/terraform/README.md).
 
 ---
 

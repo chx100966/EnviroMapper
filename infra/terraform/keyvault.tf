@@ -11,12 +11,12 @@ resource "azurerm_key_vault" "main" {
   sku_name                   = "standard"
   rbac_authorization_enabled = true
   soft_delete_retention_days = 7
-  # Off so `terraform destroy` can purge the vault; turn on for anything long-lived.
+  # Off so `tofu destroy` can purge the vault; turn on for anything long-lived.
   purge_protection_enabled = false
   tags                     = local.tags
 }
 
-# Lets the identity running Terraform write the secrets below.
+# Lets the identity running OpenTofu write the secrets below.
 resource "azurerm_role_assignment" "kv_deployer" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets Officer"
@@ -31,13 +31,13 @@ resource "time_sleep" "kv_rbac_propagation" {
 }
 
 locals {
-  key_vault_secrets = {
+  key_vault_secrets = merge({
     "sql-admin-password"        = random_password.sql_admin.result
     "sql-connection-string"     = local.sql_connection_string
     "iothub-service-connection" = azurerm_iothub_shared_access_policy.backend.primary_connection_string
     "iothub-events-connection"  = local.iothub_events_connection_string
     "jwt-signing-key"           = random_password.jwt_signing_key.result
-  }
+  }, local.dps_enrollment_key_secrets)
 
   # App Service / Functions resolve these at runtime with the app's managed identity.
   # Versionless URIs always point at the latest secret version.

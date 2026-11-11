@@ -17,8 +17,11 @@ locals {
     log_analytics   = "log-${local.base}"
     app_insights    = "appi-${local.base}"
     iothub          = "iot-${local.base}-${local.suffix}"
+    dps             = "provs-${local.base}-${local.suffix}"
     sql_server      = "sql-${local.base}-${local.suffix}"
     sql_database    = "sqldb-${var.project}"
+    cosmos_account  = "cosmos-${local.base}-${local.suffix}"
+    cosmos_database = var.project
     storage_account = "st${var.project}${var.environment}${local.suffix}"
     key_vault       = "kv-${var.project}-${local.suffix}"
     api_plan        = "asp-${local.base}-api"
@@ -32,7 +35,7 @@ locals {
   tags = merge({
     project     = var.project
     environment = var.environment
-    managed-by  = "terraform"
+    managed-by  = "opentofu"
   }, var.tags)
 }
 

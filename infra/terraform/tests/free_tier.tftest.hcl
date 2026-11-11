@@ -1,4 +1,4 @@
-# `terraform test` runs fully offline: every provider is mocked, nothing is created in Azure.
+# `tofu test` runs fully offline: every provider is mocked, nothing is created in Azure.
 # Guards the cost model from README.md - a paid SKU should be a deliberate change to these tests.
 
 mock_provider "azurerm" {
@@ -47,6 +47,36 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kv-test"
     }
   }
+
+  mock_resource "azurerm_iothub" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Devices/iotHubs/iot-test"
+    }
+  }
+
+  # Cosmos DB role assignments only accept UUIDs as principal IDs.
+  mock_resource "azurerm_linux_web_app" {
+    defaults = {
+      identity = {
+        principal_id = "00000000-0000-0000-0000-000000000003"
+      }
+    }
+  }
+
+  mock_resource "azurerm_function_app_flex_consumption" {
+    defaults = {
+      identity = {
+        principal_id = "00000000-0000-0000-0000-000000000004"
+      }
+    }
+  }
+
+  mock_resource "azurerm_cosmosdb_account" {
+    defaults = {
+      id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos-test"
+      endpoint = "https://cosmos-test.documents.azure.com:443/"
+    }
+  }
 }
 
 mock_provider "azapi" {}
@@ -67,12 +97,27 @@ mock_provider "time" {
   }
 }
 
+# The DPS enrollment groups are created by a local-exec script (Azure CLI), which `tofu test` would
+# run for real even with mocked providers.
+variables {
+  dps_manage_enrollment_groups = false
+}
+
 run "uses_only_free_or_scale_to_zero_tiers" {
   command = apply
+
+  variables {
+    frontend_hosting = "static_web_app"
+  }
 
   assert {
     condition     = azurerm_iothub.main.sku[0].name == "F1"
     error_message = "IoT Hub must stay on the free F1 tier."
+  }
+
+  assert {
+    condition     = azurerm_iothub_dps.main.sku[0].name == "S1" && azurerm_iothub_dps.main.sku[0].capacity == 1
+    error_message = "DPS must stay on a single S1 unit (billed per operation only)."
   }
 
   assert {
@@ -91,6 +136,16 @@ run "uses_only_free_or_scale_to_zero_tiers" {
   }
 
   assert {
+    condition     = azurerm_cosmosdb_account.main.free_tier_enabled && one(azurerm_cosmosdb_account.main.capacity).total_throughput_limit == 1000
+    error_message = "Cosmos DB must use the free tier and refuse throughput beyond its 1000 RU/s."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_database.main.throughput <= 1000
+    error_message = "The database's shared throughput must stay within the free 1000 RU/s."
+  }
+
+  assert {
     condition     = azurerm_static_web_app.frontend[0].sku_tier == "Free"
     error_message = "The Static Web App must stay on the Free plan."
   }
@@ -106,16 +161,12 @@ run "uses_only_free_or_scale_to_zero_tiers" {
   }
 }
 
-run "storage_frontend_fallback" {
+run "storage_frontend_by_default" {
   command = apply
-
-  variables {
-    frontend_hosting = "storage"
-  }
 
   assert {
     condition     = length(azurerm_static_web_app.frontend) == 0 && length(azurerm_storage_account_static_website.frontend) == 1
-    error_message = "frontend_hosting = \"storage\" must replace the Static Web App with a storage static website."
+    error_message = "The default frontend_hosting = \"storage\" must use a storage static website, not a Static Web App."
   }
 
   assert {
@@ -134,5 +185,101 @@ run "budget_with_contacts" {
   assert {
     condition     = azurerm_consumption_budget_resource_group.main[0].time_period[0].start_date == "2026-10-01T00:00:00Z"
     error_message = "The budget must start on the first day of the month of the first apply."
+  }
+}
+
+run "telemetry_reaches_cosmos_and_the_builtin_endpoint" {
+  command = apply
+
+  assert {
+    condition     = azurerm_iothub_route.builtin.endpoint_names == tolist(["events"]) && azurerm_iothub_route.builtin.condition == "true" && azurerm_iothub_route.builtin.enabled
+    error_message = "Every device message must still reach the built-in endpoint (Function App trigger) once custom routes exist."
+  }
+
+  assert {
+    condition     = azurerm_iothub_route.cosmos.endpoint_names == tolist([azurerm_iothub_endpoint_cosmosdb_account.telemetry.name]) && azurerm_iothub_route.cosmos.condition == var.telemetry_store_condition
+    error_message = "Messages matching telemetry_store_condition must be routed to the Cosmos DB endpoint."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.partition_key_paths == tolist(["/${azurerm_iothub_endpoint_cosmosdb_account.telemetry.partition_key_name}"])
+    error_message = "The container's partition key must be the property IoT Hub fills from the partition key template."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.default_ttl == null
+    error_message = "Raw telemetry must be kept forever unless cosmos_telemetry_ttl_days is set."
+  }
+}
+
+run "cosmos_serverless_fallback" {
+  command = apply
+
+  variables {
+    cosmos_capacity_mode      = "serverless"
+    cosmos_telemetry_ttl_days = 90
+  }
+
+  assert {
+    condition     = !azurerm_cosmosdb_account.main.free_tier_enabled && contains([for c in azurerm_cosmosdb_account.main.capabilities : c.name], "EnableServerless")
+    error_message = "cosmos_capacity_mode = \"serverless\" must create a serverless account without the free tier."
+  }
+
+  assert {
+    condition     = length(azurerm_cosmosdb_account.main.capacity) == 0
+    error_message = "A serverless account takes no total throughput limit."
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_sql_container.telemetry.default_ttl == 90 * 86400
+    error_message = "cosmos_telemetry_ttl_days must set the container's default TTL in seconds."
+  }
+}
+
+run "devices_provision_through_dps" {
+  command = apply
+
+  assert {
+    condition     = one(azurerm_iothub_dps.main.linked_hub).connection_string == azurerm_iothub_shared_access_policy.dps.primary_connection_string
+    error_message = "DPS must be linked to the IoT Hub."
+  }
+
+  assert {
+    condition     = azurerm_iothub_shared_access_policy.dps.registry_write && azurerm_iothub_shared_access_policy.dps.service_connect && azurerm_iothub_shared_access_policy.dps.device_connect
+    error_message = "The policy DPS links with needs RegistryWrite, ServiceConnect and DeviceConnect."
+  }
+
+  assert {
+    condition     = length(terraform_data.dps_enrollment_group) == 0 && length(random_bytes.dps_group_key) == 3
+    error_message = "With dps_manage_enrollment_groups = false no script runs, but every group still gets a key."
+  }
+
+  assert {
+    condition     = alltrue([for group in ["agriculture", "industry", "weather"] : contains(keys(azurerm_key_vault_secret.app), "dps-enrollment-key-${group}")])
+    error_message = "Each enrollment group key must be stored in Key Vault."
+  }
+
+  assert {
+    condition     = azurerm_iothub_enrichment.mode.value == "$twin.tags.mode" && azurerm_iothub_enrichment.mode.endpoint_names == tolist(["events"])
+    error_message = "Telemetry on the built-in endpoint must carry the device's mode from its twin tag."
+  }
+}
+
+# plan only: provisioners run on apply.
+run "enrollment_groups_are_managed_by_default" {
+  command = plan
+
+  variables {
+    dps_manage_enrollment_groups = true
+  }
+
+  assert {
+    condition     = toset(keys(terraform_data.dps_enrollment_group)) == toset(["agriculture", "industry", "weather"])
+    error_message = "Every simulator mode must get an enrollment group."
+  }
+
+  assert {
+    condition     = terraform_data.dps_enrollment_group["industry"].triggers_replace.twin_tags == jsonencode({ mode = "industry" })
+    error_message = "Devices of a group must start with the twin tag mode = <group>."
   }
 }
