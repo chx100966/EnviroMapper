@@ -3,20 +3,18 @@ import json
 import pytest
 
 from simulators import run_simulator
-from simulators.connection import DpsSettings
-from simulators.telemetry import CONTENT_ENCODING, CONTENT_TYPE
-
-GROUP_KEY = "ZW52aXJvbWFwcGVyLXRlc3QtZ3JvdXAta2V5LTAxMjM0NTY3ODlhYmNkZWY="
+from simulators.connection import MqttSettings, SendError
 
 
 @pytest.fixture
 def no_settings(monkeypatch, tmp_path):
     for name in (
-        "DPS_ID_SCOPE",
-        "DPS_ENROLLMENT_KEY_AGRICULTURE",
-        "DPS_ENROLLMENT_KEY_INDUSTRY",
-        "DPS_ENROLLMENT_KEY_WEATHER",
-        "IOTHUB_DEVICE_CONNECTION_STRING",
+        "MQTT_HOST",
+        "MQTT_PORT",
+        "MQTT_USERNAME",
+        "MQTT_PASSWORD",
+        "MQTT_TLS",
+        "MQTT_TOPIC_PREFIX",
     ):
         monkeypatch.delenv(name, raising=False)
     return ["--env-file", str(tmp_path / "missing.env")]
@@ -52,7 +50,7 @@ def test_all_modes_by_default(capsys):
     "argv",
     [
         ["--device-id", "sim-x-01"],  # needs a single mode
-        ["--mode", "weather", "--device-id", "Sim-X"],  # not a DPS registration ID
+        ["--mode", "weather", "--device-id", "Sim-X"],  # doesn't fit the schema's deviceId
         ["--count", "0"],
     ],
 )
@@ -66,47 +64,53 @@ def test_missing_settings_end_with_a_hint(no_settings, caplog):
     assert "ai/.env.example" in caplog.text
 
 
-def test_a_connection_string_is_one_device(no_settings, monkeypatch, caplog):
-    monkeypatch.setenv(
-        "IOTHUB_DEVICE_CONNECTION_STRING", "HostName=h;DeviceId=sim-weather-07;SharedAccessKey=a2V5"
-    )
-    assert run_simulator.main(["--count", "1", *no_settings]) == 2
-    assert "--mode" in caplog.text
-
-
 class FakeClient:
-    def __init__(self):
+    def __init__(self, fail=False):
         self.sent = []
         self.closed = False
+        self.fail = fail
 
-    async def send_message(self, message):
+    async def send(self, message):
+        if self.fail:
+            raise SendError("not connected")
         self.sent.append(message)
 
     async def shutdown(self):
         self.closed = True
 
 
-def test_sends_through_dps_with_the_routing_properties(no_settings, monkeypatch, validator):
-    monkeypatch.setenv("DPS_ID_SCOPE", "0ne00ABCDEF")
-    monkeypatch.setenv("DPS_ENROLLMENT_KEY_INDUSTRY", GROUP_KEY)
-    client = FakeClient()
+def fake_connect(monkeypatch, client):
     connected = []
 
-    async def fake_connect(settings, websockets=False):
-        connected.append((settings, websockets))
+    async def connect(settings, device_id):
+        connected.append((settings, device_id))
         return client
 
-    monkeypatch.setattr(run_simulator, "connect", fake_connect)
-    argv = ["--mode", "industry", "--count", "2", "--interval", "0", "--websockets", *no_settings]
+    monkeypatch.setattr(run_simulator, "connect", connect)
+    return connected
+
+
+def test_publishes_one_connection_per_device(no_settings, monkeypatch, validator):
+    monkeypatch.setenv("MQTT_HOST", "localhost")
+    client = FakeClient()
+    connected = fake_connect(monkeypatch, client)
+    argv = ["--count", "2", "--interval", "0", *no_settings]
     assert run_simulator.main(argv) == 0
 
-    [(settings, websockets)] = connected
-    assert isinstance(settings, DpsSettings) and settings.registration_id == "sim-industry-01"
-    assert websockets
-    assert len(client.sent) == 2 and client.closed
-    for message in client.sent:
-        body = json.loads(message.data)
-        assert list(validator.iter_errors(body)) == []
-        assert message.content_type == CONTENT_TYPE
-        assert message.content_encoding == CONTENT_ENCODING
-        assert message.message_id == body["messageId"]
+    assert sorted(device_id for _, device_id in connected) == [
+        "sim-agriculture-01",
+        "sim-industry-01",
+        "sim-weather-01",
+    ]
+    assert all(settings == MqttSettings(host="localhost") for settings, _ in connected)
+    assert len(client.sent) == 6 and client.closed
+    assert all(list(validator.iter_errors(message)) == [] for message in client.sent)
+
+
+def test_a_failed_send_is_logged_and_the_run_goes_on(no_settings, monkeypatch, caplog):
+    monkeypatch.setenv("MQTT_HOST", "localhost")
+    client = FakeClient(fail=True)
+    fake_connect(monkeypatch, client)
+    argv = ["--mode", "industry", "--count", "2", "--interval", "0", *no_settings]
+    assert run_simulator.main(argv) == 0
+    assert caplog.text.count("not sent") == 2 and client.closed

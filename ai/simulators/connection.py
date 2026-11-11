@@ -1,26 +1,27 @@
-"""Connecting a simulated device to IoT Hub: through DPS (the default) or a connection string.
+"""Connecting a simulated device to the MQTT broker (mosquitto, see docker-compose.yml).
 
-The Python device SDK (azure-iot-device) speaks MQTT only - port 8883, or 443 with websockets=True
-where 8883 is blocked. It is imported lazily, so --dry-run works without it.
+paho-mqtt is imported lazily, so --dry-run works without it.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import ssl
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from simulators.telemetry import CONTENT_ENCODING, CONTENT_TYPE, serialize
+from simulators.telemetry import serialize
 
 if TYPE_CHECKING:
-    from azure.iot.device import Message
-    from azure.iot.device.aio import IoTHubDeviceClient
+    from paho.mqtt.client import Client
 
-DEFAULT_PROVISIONING_HOST = "global.azure-devices-provisioning.net"
+DEFAULT_PORT = 1883
+DEFAULT_TLS_PORT = 8883
+DEFAULT_TOPIC_PREFIX = "enviromapper/telemetry"
+# At least once: the broker acknowledges every message. Consumers drop duplicates by messageId.
+QOS = 1
+CONNECT_TIMEOUT = 10.0
+PUBLISH_TIMEOUT = 10.0
 
 
 class ConfigError(Exception):
@@ -31,116 +32,101 @@ class DeviceConnectionError(Exception):
     pass
 
 
-@dataclass(frozen=True)
-class DpsSettings:
-    id_scope: str
-    registration_id: str
-    device_key: str
-    host: str = DEFAULT_PROVISIONING_HOST
+class SendError(Exception):
+    pass
 
 
 @dataclass(frozen=True)
-class ConnectionStringSettings:
-    connection_string: str
+class MqttSettings:
+    host: str
+    port: int = DEFAULT_PORT
+    username: str | None = None
+    password: str | None = None
+    tls: bool = False
+    topic_prefix: str = DEFAULT_TOPIC_PREFIX
 
 
-Settings = DpsSettings | ConnectionStringSettings
+def _flag(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def derive_device_key(group_key: str, registration_id: str) -> str:
-    """Key of one device in a symmetric-key enrollment group: HMAC-SHA256 of its registration ID."""
-    digest = hmac.new(base64.b64decode(group_key), registration_id.encode(), hashlib.sha256)
-    return base64.b64encode(digest.digest()).decode()
-
-
-def connection_string_device_id(connection_string: str) -> str:
-    parts = dict(part.split("=", 1) for part in connection_string.split(";") if "=" in part)
-    if not parts.get("DeviceId"):
-        raise ConfigError("IOTHUB_DEVICE_CONNECTION_STRING has no DeviceId.")
-    return parts["DeviceId"]
-
-
-def dps_settings(env: Mapping[str, str], registration_id: str, mode: str) -> DpsSettings:
-    id_scope = env.get("DPS_ID_SCOPE")
-    if not id_scope:
-        raise ConfigError(
-            "Set DPS_ID_SCOPE and the enrollment group keys (or IOTHUB_DEVICE_CONNECTION_STRING) "
-            "in ai/.env - see ai/.env.example."
-        )
-    key_variable = f"DPS_ENROLLMENT_KEY_{mode.upper()}"
-    group_key = env.get(key_variable)
-    if not group_key:
-        raise ConfigError(f"Set {key_variable} in ai/.env to simulate a {mode} device.")
-    return DpsSettings(
-        id_scope=id_scope,
-        registration_id=registration_id,
-        device_key=derive_device_key(group_key, registration_id),
-        host=env.get("DPS_PROVISIONING_HOST") or DEFAULT_PROVISIONING_HOST,
-    )
-
-
-async def connect(settings: Settings, websockets: bool = False) -> IoTHubDeviceClient:
-    from azure.iot.device.exceptions import ClientError, ServiceError
-
-    if not hasattr(ssl, "PROTOCOL_TLSv1_2"):
-        # azure-iot-device 2.14 builds its TLS context with it; Pythons linked against OpenSSL 4
-        # (e.g. Homebrew's) no longer have it.
-        raise DeviceConnectionError(
-            f"azure-iot-device needs a Python built with OpenSSL 3 - this one has "
-            f"{ssl.OPENSSL_VERSION}. Use python.org's or the system Python (see ai/README.md)."
-        )
+def mqtt_settings(env: Mapping[str, str]) -> MqttSettings:
+    host = env.get("MQTT_HOST")
+    if not host:
+        raise ConfigError("Set MQTT_HOST in ai/.env - see ai/.env.example.")
+    tls = _flag(env.get("MQTT_TLS"))
+    port_value = env.get("MQTT_PORT")
     try:
-        return await _connect(settings, websockets)
-    except (ClientError, ServiceError) as error:
-        raise DeviceConnectionError(f"{_describe(settings)}: {error!r}") from error
-
-
-def _describe(settings: Settings) -> str:
-    if isinstance(settings, DpsSettings):
-        return f"{settings.registration_id} (DPS {settings.id_scope})"
-    return connection_string_device_id(settings.connection_string)
-
-
-async def _connect(settings: Settings, websockets: bool) -> IoTHubDeviceClient:
-    from azure.iot.device.aio import IoTHubDeviceClient, ProvisioningDeviceClient
-
-    if isinstance(settings, ConnectionStringSettings):
-        client = IoTHubDeviceClient.create_from_connection_string(
-            settings.connection_string, websockets=websockets
-        )
-    else:
-        # Registers the device on first use (DPS creates it in IoT Hub with the group's twin
-        # tags); later runs get the same assignment back.
-        provisioning = ProvisioningDeviceClient.create_from_symmetric_key(
-            provisioning_host=settings.host,
-            registration_id=settings.registration_id,
-            id_scope=settings.id_scope,
-            symmetric_key=settings.device_key,
-            websockets=websockets,
-        )
-        result = await provisioning.register()
-        if result.status != "assigned":
-            raise DeviceConnectionError(
-                f"DPS did not assign {settings.registration_id}: status {result.status}"
-            )
-        client = IoTHubDeviceClient.create_from_symmetric_key(
-            symmetric_key=settings.device_key,
-            hostname=result.registration_state.assigned_hub,
-            device_id=result.registration_state.device_id,
-            websockets=websockets,
-        )
-    await client.connect()
-    return client
-
-
-def to_iothub_message(message: dict[str, Any]) -> Message:
-    from azure.iot.device import Message
-
-    # Without the content type and encoding IoT Hub can't read the body for routing, and the
-    # message never reaches Cosmos DB.
-    return Message(
-        serialize(message),
-        message_id=message["messageId"],
-        content_encoding=CONTENT_ENCODING,
-        content_type=CONTENT_TYPE,
+        port = int(port_value) if port_value else (DEFAULT_TLS_PORT if tls else DEFAULT_PORT)
+    except ValueError:
+        raise ConfigError(f"MQTT_PORT must be a number, not {port_value!r}.") from None
+    return MqttSettings(
+        host=host,
+        port=port,
+        username=env.get("MQTT_USERNAME") or None,
+        password=env.get("MQTT_PASSWORD") or None,
+        tls=tls,
+        topic_prefix=(env.get("MQTT_TOPIC_PREFIX") or DEFAULT_TOPIC_PREFIX).rstrip("/"),
     )
+
+
+def topic(settings: MqttSettings, message: dict[str, Any]) -> str:
+    """enviromapper/telemetry/<mode>/<deviceId> - consumers can subscribe per mode or per device."""
+    return f"{settings.topic_prefix}/{message['mode']}/{message['deviceId']}"
+
+
+class DeviceClient:
+    """One MQTT connection per simulated device, with its own client ID."""
+
+    def __init__(self, client: Client, settings: MqttSettings) -> None:
+        self.client = client
+        self.settings = settings
+
+    async def send(self, message: dict[str, Any]) -> None:
+        info = self.client.publish(topic(self.settings, message), serialize(message), qos=QOS)
+        try:
+            await asyncio.to_thread(info.wait_for_publish, PUBLISH_TIMEOUT)
+        except (ValueError, RuntimeError) as error:  # queue full / not connected
+            raise SendError(str(error)) from error
+        if not info.is_published():
+            raise SendError(f"not acknowledged by the broker (rc={info.rc})")
+
+    async def shutdown(self) -> None:
+        self.client.disconnect()
+        self.client.loop_stop()
+
+
+async def connect(settings: MqttSettings, device_id: str) -> DeviceClient:
+    import paho.mqtt.client as mqtt
+
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=device_id)
+    if settings.username:
+        client.username_pw_set(settings.username, settings.password)
+    if settings.tls:
+        client.tls_set()
+    # Reconnects by itself (loop_start) if the broker goes away; publishes wait for it.
+    client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+    loop = asyncio.get_running_loop()
+    connected = loop.create_future()
+
+    def on_connect(_client, _userdata, _flags, reason_code, _properties):
+        if not connected.done():
+            loop.call_soon_threadsafe(connected.set_result, reason_code)
+
+    client.on_connect = on_connect
+    where = f"{device_id} ({settings.host}:{settings.port})"
+    try:
+        await asyncio.to_thread(client.connect, settings.host, settings.port)
+    except OSError as error:
+        raise DeviceConnectionError(f"{where}: {error}") from error
+    client.loop_start()
+    try:
+        reason_code = await asyncio.wait_for(connected, CONNECT_TIMEOUT)
+    except TimeoutError:
+        client.loop_stop()
+        raise DeviceConnectionError(f"{where}: no answer from the broker") from None
+    if reason_code.is_failure:
+        client.loop_stop()
+        raise DeviceConnectionError(f"{where}: broker refused the connection ({reason_code})")
+    return DeviceClient(client, settings)
