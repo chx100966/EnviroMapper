@@ -31,7 +31,7 @@ The system supports three operating modes:
 
 ```
 EnviroMapper/
-├── backend/          # C# .NET 8 Web API
+├── backend/          # C# .NET 10 Web API
 ├── frontend/         # React + TypeScript SPA
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
 ├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
@@ -50,7 +50,7 @@ Key components (Docker containers, run locally and in Azure):
 ## Quick start
 
 ### Prerequisites
-- .NET 8 SDK
+- .NET 10 SDK
 - Node.js 20+
 - Python 3.11+
 - Azure CLI
