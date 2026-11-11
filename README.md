@@ -36,6 +36,7 @@ EnviroMapper/
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
 ├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
 ├── schemas/          # Shared data contracts, e.g. the telemetry message format (schemas/telemetry/)
+├── db/               # Local PostgreSQL + TimescaleDB: init script, migrations (see db/README.md)
 └── docs/             # Documentation, mockups, diagrams
 ```
 
@@ -60,6 +61,9 @@ Key Azure components:
 `backend/` and `frontend/` are still empty; run instructions come with the first code in each
 module. `ai/` has the IoT device simulator ([ai/README.md](ai/README.md)), and the infrastructure is
 described in [infra/terraform/README.md](infra/terraform/README.md).
+
+Local database (PostgreSQL + TimescaleDB in Docker): `cp .env.example .env`, set the passwords,
+then `docker compose up -d`. Details in [db/README.md](db/README.md).
 
 ---
 
