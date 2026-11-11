@@ -31,15 +31,11 @@ resource "time_sleep" "kv_rbac_propagation" {
 }
 
 locals {
-  key_vault_secrets = merge({
-    "sql-admin-password"        = random_password.sql_admin.result
-    "sql-connection-string"     = local.sql_connection_string
-    "iothub-service-connection" = azurerm_iothub_shared_access_policy.backend.primary_connection_string
-    "iothub-events-connection"  = local.iothub_events_connection_string
-    "jwt-signing-key"           = random_password.jwt_signing_key.result
-  }, local.dps_enrollment_key_secrets)
+  key_vault_secrets = {
+    "jwt-signing-key" = random_password.jwt_signing_key.result
+  }
 
-  # App Service / Functions resolve these at runtime with the app's managed identity.
+  # App Service resolves these at runtime with the app's managed identity.
   # Versionless URIs always point at the latest secret version.
   key_vault_references = {
     for name, secret in azurerm_key_vault_secret.app :
@@ -61,12 +57,5 @@ resource "azurerm_role_assignment" "kv_api" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_linux_web_app.api.identity[0].principal_id
-  principal_type       = "ServicePrincipal"
-}
-
-resource "azurerm_role_assignment" "kv_function" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_function_app_flex_consumption.processor.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 }

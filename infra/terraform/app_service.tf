@@ -36,15 +36,8 @@ resource "azurerm_linux_web_app" "api" {
 
   # Keys map onto backend/src/EnviroMapper.API/appsettings.json ("__" = nesting level).
   app_settings = {
-    "ConnectionStrings__DefaultConnection"  = local.key_vault_references["sql-connection-string"]
-    "AzureIoTHub__ConnectionString"         = local.key_vault_references["iothub-service-connection"]
     "Jwt__SecretKey"                        = local.key_vault_references["jwt-signing-key"]
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
-
-    # No key: the API reads telemetry with its managed identity (Cosmos DB Data Reader, cosmos.tf).
-    "CosmosDb__Endpoint"      = azurerm_cosmosdb_account.main.endpoint
-    "CosmosDb__DatabaseName"  = azurerm_cosmosdb_sql_database.main.name
-    "CosmosDb__ContainerName" = azurerm_cosmosdb_sql_container.telemetry.name
   }
 
   tags = local.tags

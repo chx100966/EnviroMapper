@@ -5,91 +5,51 @@ hours at a time, no production load. Every component is either free-tier or scal
 **nothing has to be stopped between sessions** — an idle environment costs close to $0.
 
 ```
- devices / ai/simulators ──register───▶ DPS (S1, one enrollment group per mode)
-            │                              │ creates the device in IoT Hub, returns hub + device ID
-            │                              ▼
-            └────────MQTT/AMQP────────▶ IoT Hub (F1) ──route "telemetry-to-cosmos"──▶ Cosmos DB (free tier)
-                                           │             (valid JSON telemetry only)    raw telemetry
-                                           │ route "telemetry-to-builtin" (every message):
-                                           │ built-in endpoint, consumer group "functions"
-                                           ▼
-                              Function App (Flex Consumption, Python)
-                              validation + anomaly detection ──▶ Azure SQL (free offer, serverless)
-                                                                          ▲
- browser ──▶ Static Web App (React SPA) ──HTTPS──▶ App Service F1 (.NET API) ──▶ reads Cosmos DB too
+ browser ──▶ Static Web App / Storage static website (React SPA) ──HTTPS──▶ App Service F1 (.NET API)
 
- Key Vault (secrets, read via managed identities) · Storage (function host, models)
+ Key Vault (secrets, read via managed identities) · Storage (models, optional SPA hosting)
  Log Analytics + Application Insights (capped)    · Budget alert on the resource group
 ```
+
+Device ingestion (MQTT broker), the databases (PostgreSQL + TimescaleDB) and telemetry processing
+run as Docker containers (see [docker-compose.yml](../../docker-compose.yml)), not as Azure PaaS
+services. How those containers are hosted in Azure isn't part of this configuration yet.
 
 ## Resources and estimated cost
 
 | Component | Resource / SKU | Free limit that matters | Cost / month |
 |---|---|---|---|
-| Device ingestion | IoT Hub **F1** | 8,000 messages/day (0.5 KB each), 500 devices, one F1 hub per subscription | $0 |
-| Device provisioning | IoT Hub Device Provisioning Service **S1** (the only tier) | — ($0.10 per 1,000 registrations or enrollment changes) | < $0.01 |
-| Telemetry processing | Functions **Flex Consumption**, 512 MB, max 2 instances | 100,000 GB-s + 250,000 executions/month | $0 (≈ $1 if the grant doesn't apply, see below) |
-| Database | Azure SQL **free offer**, serverless `GP_S_Gen5_1` (0.5–1 vCore), 32 GB | 100,000 vCore-seconds/month ≈ 30–40 h online | $0 (pauses when used up) |
-| Raw telemetry | Cosmos DB **free tier** (NoSQL API), 1000 RU/s shared by the database, one region | 1000 RU/s + 25 GB for the account's lifetime, one free tier account per subscription | $0 |
 | Backend API | App Service **F1** Linux | 60 CPU-minutes/day, 1 GB RAM, 165 MB outbound/day | $0 |
 | Frontend | Static Web Apps **Free** (or Storage static website) | 100 GB bandwidth/month | $0 |
 | Secrets | Key Vault Standard | — | < $0.01 |
-| Function host, models | Storage account, Standard LRS | — | $0.05–1 (mostly trigger checkpoint writes) |
+| Models, SPA | Storage account, Standard LRS | — | cents |
 | Logs, APM | Log Analytics + Application Insights, capped at 0.1 GB/day | 5 GB/month | $0 |
 | Cost guard | Budget on the resource group (optional) | — | $0 |
-| **Total** | | | **≈ $0–2** |
+| **Total** | | | **≈ $0–1** |
 
 List prices for Poland Central in USD (Azure Retail Prices API, October 2026); the environment runs in
 Germany West Central (see below), where prices may differ slightly. The $100 Azure for
 Students credit covers the whole thesis with a wide margin.
 
 **Assumed usage:** one `dev` environment; the cloud is used a few hours a day on ~15 days a month;
-the simulator runs 3 devices (one per mode), each sending one message every 15 s with all readings
-of that tick; a handful of users (the team and the supervisor).
+a handful of users (the team and the supervisor).
 
 ### Where the free limits bite
 
-- **IoT Hub, 8,000 messages/day** (resets 00:00 UTC; when it's used up the hub rejects device
-  messages). 3 devices × 1 message / 15 s = 720 messages/h, i.e. ~11 h of simulation per day.
-  On F1 a message is metered in 0.5 KB chunks (body plus property values), so the
-  [telemetry schema](../../schemas/telemetry/README.md) puts all readings of a tick into one message
-  of ~300 bytes.
-- **SQL, 100,000 vCore-seconds/month.** While online the database is billed at least 0.67 vCore,
-  so it lasts ~41 h idle-online or ~28 h under load, and every wake-up costs at least the 15-minute
-  auto-pause delay. Anything holding a connection keeps it awake: SSMS/Azure Data Studio Object
-  Explorer, connection pools, health checks. Use a local SQL Server in Docker for day-to-day
-  development and the Azure database for integration tests and demos. Track the
-  *Free amount remaining* metric on the database. When the allowance is gone the database stays
-  paused until the 1st of the next month; switching it to *continue with charges* is irreversible
-  (then $0.57 per vCore-hour).
-- **Cosmos DB free tier: one account per subscription,** chosen when the account is created. If the
-  subscription already has one (`az cosmosdb list --query "[?enableFreeTier].name"`), the apply
-  fails — set `cosmos_capacity_mode = "serverless"` instead: $0.305 per million RU, and writing
-  ~8,000 documents of ~1 KB a day costs roughly 1.5–2 million RU a month ≈ $0.50, plus $0.25 per GB
-  stored. Storage is not the limit: at that rate the free 25 GB lasts for years
-  (`cosmos_telemetry_ttl_days` deletes old documents if it ever matters). The account refuses any
-  throughput beyond the free 1000 RU/s, so new containers go into the existing database, whose RU/s
-  they share.
 - **App Service F1:** over the CPU or bandwidth quota the API returns 403 until midnight UTC;
   after ~20 idle minutes the app unloads and the next request has a cold start. No Always On, so
-  background workers don't belong in the API — telemetry is read by the Function App.
-- **Functions free grant** "applies to paid subscriptions only"; on a credit offer such as Azure for
-  Students assume you pay for it: at 512 MB and ≥ 1 s billed per execution, 50,000 executions/month
-  ≈ 25,000 GB-s ≈ $0.95.
+  background workers don't belong in the API.
 
 ### Upgrade path
 
 | When | Change | List price |
 |---|---|---|
-| More than 8,000 messages/day, 24/7 simulation | New IoT Hub B1 (400,000 msgs/day, no cloud-to-device/twins) or S1 — F1 can't be upgraded in place | $10 / $25 per month |
 | API always on, no CPU quota | App Service B1 Linux | ≈ $13 per month |
-| Database online all the time | SQL Database Basic (5 DTU, 2 GB) | ≈ $4.90 per month |
 
 ## Before the first apply
 
 You need [OpenTofu](https://opentofu.org/docs/intro/install/) ≥ 1.11 (CI uses 1.13.2), the Azure
-CLI, bash (on Windows: Git Bash or WSL — `apply` runs
-[scripts/dps-enrollment-group.sh](scripts/dps-enrollment-group.sh)), and the **Owner** role on the
+CLI, and the **Owner** role on the
 subscription — OpenTofu creates role assignments and registers resource providers. The configuration is plain HCL, so the directory is still called `terraform/`
 and the variables file `terraform.tfvars`.
 
@@ -102,24 +62,13 @@ az account set --subscription "<subscription name or id>"
 
 # Look for the "Allowed resource deployment regions" assignment and its list of locations
 az policy assignment list --query "[].{name:displayName, parameters:parameters}" -o jsonc
-
-# Flex Consumption isn't available in every region
-az functionapp list-flexconsumption-locations --query "[].name" -o tsv
 ```
 
-Choose a `location` that is in both lists and has every resource type below. For our subscription
-(checked October 2026; `az provider show -n Microsoft.Devices --query "resourceTypes[?resourceType=='IotHubs'].locations"`
-and so on) that leaves one region, which is the default:
+Choose a `location` from that list. The default is germanywestcentral, one of the regions our
+subscription allows (checked October 2026).
 
-| Allowed region | IoT Hub | Flex Consumption | App Service F1 | SQL serverless | Static Web Apps |
-|---|---|---|---|---|---|
-| **germanywestcentral** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| polandcentral, swedencentral, belgiumcentral, austriaeast | ❌ | ✅ | ✅ | ✅ | ❌ |
-
-Key Vault, Storage, Log Analytics and Application Insights exist in all five. The Device
-Provisioning Service has prices only for germanywestcentral of the five (Retail Prices API,
-November 2026). Static Web Apps exists
-in none of them (only westus2, centralus, eastus2, westeurope, eastasia), so the frontend is a
+Key Vault, Storage, App Service, Log Analytics and Application Insights exist in all of them.
+Static Web Apps exists in none of them (only westus2, centralus, eastus2, westeurope, eastasia), so the frontend is a
 storage static website by default (`frontend_hosting = "storage"`).
 
 ## Usage
@@ -138,8 +87,7 @@ tofu apply tfplan
 tofu output
 ```
 
-The first apply takes several minutes (the SQL server and IoT Hub are the slow ones), including a
-deliberate 60 s wait for Key Vault permissions to propagate.
+The first apply takes a few minutes, including a deliberate 60 s wait for Key Vault permissions to propagate.
 
 `tofu test` needs no Azure login: it applies the configuration against mocked providers and
 fails if a paid tier slips in (CI runs it together with `tofu validate`, for both this directory
@@ -147,51 +95,16 @@ and `bootstrap/`, on every PR; `tofu init -backend=false` is enough for that). C
 a SKU on purpose means updating [tests/free_tier.tftest.hcl](tests/free_tier.tftest.hcl) and the
 cost table above.
 
-Secrets (SQL password, IoT Hub keys, DPS enrollment group keys, JWT signing key) are generated by OpenTofu, stored in Key
+Secrets (the JWT signing key) are generated by OpenTofu, stored in Key
 Vault and read by the apps through Key Vault references — never commit them anywhere. They are also
 in the state, which is why it sits in a storage account only the team can read, and why local
 `*.tfstate` and `terraform.tfvars` files are git-ignored.
 
 ### After the first apply
 
-- **Simulator devices** register themselves through DPS. Every mode has an enrollment group
-  (`agriculture`, `industry`, `weather`, see `dps_enrollment_groups`); a device's key is derived from
-  the group key and its registration ID, e.g. `sim-agriculture-01`, and the device starts with the
-  twin tag `mode` of its group. The simulator does all of this itself — [ai/README.md](../../ai/README.md)
-  has the script that writes the ID scope and group keys into `ai/.env`. To check DPS without code:
-
-  ```bash
-  az extension add --name azure-iot
-  GROUP_KEY=$(az keyvault secret show --vault-name "$(tofu output -raw key_vault_name)" \
-    --name dps-enrollment-key-agriculture --query value -o tsv)
-  az iot dps enrollment-group compute-device-key --key "$GROUP_KEY" --registration-id sim-agriculture-01
-
-  # registers the device; it then shows up in IoT Hub with the twin tag mode = agriculture
-  az iot device registration create --id-scope "$(tofu output -raw dps_id_scope)" \
-    --registration-id sim-agriculture-01 --key "$GROUP_KEY" --compute-key
-  ```
-
-  In code, [ai/simulators/connection.py](../../ai/simulators/connection.py) shows the flow with
-  `azure-iot-device`. IoT Hub stamps every message on the built-in endpoint with the application
-  property `mode`.
-- **Enrollment groups without bash** (`dps_manage_enrollment_groups = false`): run
-  [scripts/dps-enrollment-group.sh](scripts/dps-enrollment-group.sh) from any machine with bash,
-  with the variables listed at its top (the connection string of the DPS policy
-  `enrollment-manager`, the group key from Key Vault).
-- **Telemetry ingest:** message bodies follow
-  [schemas/telemetry/v1.schema.json](../../schemas/telemetry/README.md), sent with the content type
-  `application/json` and the content encoding `UTF-8` (Python SDK: `Message(body,
-  content_encoding="utf-8", content_type="application/json")`). Without them IoT Hub can't read the
-  body, the `telemetry-to-cosmos` condition (`telemetry_store_condition`: schema version 1, the
-  required fields and a known mode) is false and the message only reaches the built-in endpoint. Stored
-  documents are in the portal under the Cosmos DB account → *Data Explorer* → database
-  `enviromapper` → `telemetry`.
-- **Reading telemetry from notebooks or scripts** (`ai/`): the read-only key comes from
-  `az cosmosdb keys list --name "$(tofu output -raw cosmos_account_name)" --resource-group "$(tofu output -raw resource_group_name)" --type read-only-keys`;
-  the apps use their managed identities instead (Cosmos DB Built-in Data Reader).
 - **Frontend deploys:** `tofu output -raw static_web_app_deployment_token` goes into the
   GitHub secret used by the Static Web Apps deploy action.
-- **Code deploys** (`az webapp deploy`, `func azure functionapp publish`) aren't part of this
+- **Code deploys** (`az webapp deploy`) aren't part of this
   skeleton yet.
 - If the API shows raw `@Microsoft.KeyVault(...)` values right after the first apply, restart it
   once (`az webapp restart`): its access to Key Vault is granted only after the app exists.
@@ -233,48 +146,23 @@ The state of `bootstrap/` stays local on the owner's machine: it has no secrets,
 re-import the resources if it's lost). The state account has `prevent_destroy` and blob versioning,
 so a broken apply can be rolled back to an earlier `dev.tfstate` version in the portal.
 
-Things that still belong to whoever ran `apply` last: the SQL server's Entra ID admin (`sql.tf`) and
-the deployer's Key Vault role (`keyvault.tf`). Both change hands when someone else applies; the
-Key Vault role is harmless because bootstrap already gives everyone access, but only the last
-person to apply can sign in to SQL with Entra ID. Agree on who runs `apply` on the shared
-environment, or switch the SQL admin to an Entra ID group.
+The deployer's Key Vault role (`keyvault.tf`) belongs to whoever ran `apply` last and changes hands
+when someone else applies; that is harmless because bootstrap already gives everyone access.
 
 ## Tear down
 
 `tofu destroy` removes everything, including the Key Vault (purge protection is off on
-purpose), and frees the subscription's F1 IoT Hub and Cosmos DB free tier slots. A free-offer SQL
-database slot can take up to an hour to become available again.
+purpose).
 
 ## Design decisions
 
-- **azurerm + azapi:** azurerm 5.9 can't enable the SQL free offer (`useFreeLimit`), and the offer
-  can only be chosen when the database is created, so that one resource uses azapi.
-- **Cosmos DB for raw telemetry, SQL for the relational data** (devices, users, detected anomalies).
-  IoT Hub writes every valid message to Cosmos DB through message routing, without any code, and
-  writes cost a few RU each. Storing every reading in SQL would keep the serverless database awake
-  for the whole simulation and burn its monthly free allowance in a few days of use.
-- **Ingest validation in the route:** only messages matching `telemetry_store_condition` are stored;
-  the rest still reach the Function App through the built-in endpoint, so it can log or reject them.
-  The detailed checks (sensors allowed per mode, measuring ranges) belong to the Function App, which
-  validates against the full [telemetry schema](../../schemas/telemetry/README.md).
-- **DPS with one symmetric-key enrollment group per mode:** devices provision themselves and get the
-  mode as a twin tag that IoT Hub adds to their messages (message enrichment), so the backend knows a
-  device's mode without trusting the message body. The group keys are generated by OpenTofu (Key
-  Vault); the groups themselves live in the DPS data plane, which azurerm doesn't manage, so
-  `apply` creates them with the Azure CLI. The policy it uses can only manage enrollments.
-- **Key-based Cosmos DB routing endpoint:** identity-based auth would need a data role for the hub's
-  identity in place before the endpoint works. The apps themselves use managed identities.
-- **Flex Consumption** instead of the Linux Consumption plan, which retires on 2028-09-30.
-- **Serverless SQL with auto-pause** costs nothing while idle; the price is a resume delay of up to
-  a minute, which clients absorb with retry logic (EF Core `EnableRetryOnFailure`).
-- **Managed identities + Key Vault references** for app secrets. Exception: the Function App host
-  storage uses the account key, because azurerm writes an invalid `AzureWebJobsStorage` value for
-  identity-based storage on Flex Consumption.
-- **Public endpoints with firewall rules** instead of private networking: private endpoints and VNet
-  integration need paid plans and would cost more than the rest of the system.
+- **Containers instead of Azure PaaS for ingestion and data:** the MQTT broker, PostgreSQL +
+  TimescaleDB and telemetry processing run as Docker containers, the same images locally and in
+  Azure, instead of IoT Hub, Cosmos DB, Azure SQL and Azure Functions.
+- **Managed identities + Key Vault references** for app secrets.
+- **Public endpoints** instead of private networking: private endpoints and VNet integration need
+  paid plans and would cost more than the rest of the system.
 - **.NET 8** for the API matches the current code, but its support ends on 2026-11-10 — move to
   .NET 10 together with the code (`api_dotnet_version = "10.0"`).
 
-Not covered yet: CI/CD deployments to Azure, Entra ID (passwordless) access from the apps to SQL,
-alerts on the IoT Hub daily quota and the SQL free allowance. The SQL schema is not part of the
-infrastructure: it comes with the backend's EF Core migrations.
+Not covered yet: hosting the containers in Azure, CI/CD deployments to Azure.
