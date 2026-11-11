@@ -6,11 +6,6 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.9"
     }
-    # Only for settings azurerm does not expose yet (Azure SQL free offer, see sql.tf).
-    azapi = {
-      source  = "Azure/azapi"
-      version = "~> 2.13"
-    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.9"

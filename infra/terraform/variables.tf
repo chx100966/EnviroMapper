@@ -22,7 +22,7 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first. Of the five our subscription allows, only germanywestcentral has IoT Hub (see README.md)."
+  description = "Region for all regional resources. Azure for Students only allows a few regions per subscription - check the \"Allowed resource deployment regions\" policy assignment first. See README.md."
   type        = string
   default     = "germanywestcentral"
 }
@@ -52,138 +52,12 @@ variable "static_web_app_location" {
   default     = "westeurope"
 }
 
-# --- Device provisioning (DPS) ---------------------------------------------------
-
-variable "dps_enrollment_groups" {
-  description = "One symmetric-key enrollment group per simulator mode. Devices registered through a group start with the twin tag mode = <group>, which IoT Hub stamps on their telemetry."
-  type        = list(string)
-  default     = ["agriculture", "industry", "weather"]
-
-  validation {
-    condition     = alltrue([for g in var.dps_enrollment_groups : can(regex("^[a-z0-9-]{1,128}$", g))])
-    error_message = "Enrollment group IDs may only contain lowercase letters, digits and hyphens."
-  }
-}
-
-variable "dps_manage_enrollment_groups" {
-  description = "Create and update the enrollment groups during apply. Needs bash and the Azure CLI on the machine that runs apply (the azure-iot extension is added if missing). With false, create them by hand - see README.md."
-  type        = bool
-  default     = true
-}
-
 # --- Backend API (App Service) -------------------------------------------------
 
 variable "api_dotnet_version" {
   description = "Runtime of the backend API. Matches backend/*.csproj; .NET 8 support ends on 2026-11-10, move to \"10.0\" together with the code."
   type        = string
   default     = "8.0"
-}
-
-# --- Telemetry processing (Function App, Flex Consumption) ----------------------
-
-variable "function_runtime" {
-  description = "Function App stack. Python matches the ai/ module; \"dotnet-isolated\" would let the function reuse EnviroMapper.Core."
-  type = object({
-    name    = string
-    version = string
-  })
-  default = {
-    name    = "python"
-    version = "3.11"
-  }
-}
-
-variable "function_instance_memory_mb" {
-  description = "Instance size. Billing is memory x execution time, so 512 MB costs 4x less than the 2048 MB default; raise it only if model inference needs it."
-  type        = number
-  default     = 512
-
-  validation {
-    condition     = contains([512, 2048, 4096], var.function_instance_memory_mb)
-    error_message = "function_instance_memory_mb must be 512, 2048 or 4096."
-  }
-}
-
-variable "function_maximum_instance_count" {
-  description = "Scale-out ceiling (cost guard). The IoT Hub free tier has 2 partitions, so the trigger never uses more than 2 instances anyway."
-  type        = number
-  default     = 2
-
-  validation {
-    condition     = var.function_maximum_instance_count >= 1 && var.function_maximum_instance_count <= 1000
-    error_message = "function_maximum_instance_count must be between 1 and 1000."
-  }
-}
-
-# --- Database (Azure SQL free offer) ------------------------------------------
-
-variable "sql_sku_name" {
-  description = "Serverless General Purpose SKU (GP_S_Gen5_<max vCores>). The free offer allows up to 4 vCores; a lower ceiling burns the monthly 100,000 vCore-seconds more slowly."
-  type        = string
-  default     = "GP_S_Gen5_1"
-
-  validation {
-    condition     = can(regex("^GP_S_Gen5_[124]$", var.sql_sku_name))
-    error_message = "sql_sku_name must be GP_S_Gen5_1, GP_S_Gen5_2 or GP_S_Gen5_4 (free offer limit)."
-  }
-}
-
-variable "sql_auto_pause_delay_minutes" {
-  description = "Idle minutes before the database pauses. Every resume costs at least this much compute, so keep it at the 15-minute minimum."
-  type        = number
-  default     = 15
-
-  validation {
-    condition     = var.sql_auto_pause_delay_minutes >= 15
-    error_message = "sql_auto_pause_delay_minutes must be at least 15."
-  }
-}
-
-variable "sql_firewall_allowed_ips" {
-  description = "Public IPv4 addresses allowed to connect to SQL directly (e.g. developer machines), as name => IP."
-  type        = map(string)
-  default     = {}
-}
-
-# --- Telemetry store (Cosmos DB) -------------------------------------------------
-
-variable "cosmos_capacity_mode" {
-  description = "\"free_tier\" (1000 RU/s + 25 GB free, one account per subscription, chosen at creation) or \"serverless\" (pay per request - fallback when the subscription already has a free tier account). Changing it recreates the account and its data."
-  type        = string
-  default     = "free_tier"
-
-  validation {
-    condition     = contains(["free_tier", "serverless"], var.cosmos_capacity_mode)
-    error_message = "cosmos_capacity_mode must be \"free_tier\" or \"serverless\"."
-  }
-}
-
-variable "cosmos_database_throughput" {
-  description = "RU/s shared by the containers of the database (free tier only). The free tier covers up to 1000; the account refuses anything above that."
-  type        = number
-  default     = 1000
-
-  validation {
-    condition     = var.cosmos_database_throughput >= 400 && var.cosmos_database_throughput <= 1000 && var.cosmos_database_throughput % 100 == 0
-    error_message = "cosmos_database_throughput must be 400-1000 RU/s in steps of 100."
-  }
-}
-
-variable "cosmos_telemetry_ttl_days" {
-  description = "Days after which raw telemetry documents are deleted. null keeps them forever - at ~8,000 messages a day the 25 GB free storage lasts for years."
-  type        = number
-  default     = null
-
-  validation {
-    condition     = var.cosmos_telemetry_ttl_days == null ? true : var.cosmos_telemetry_ttl_days >= 1
-    error_message = "cosmos_telemetry_ttl_days must be at least 1 (or null)."
-  }
-}
-
-variable "telemetry_store_condition" {
-  description = "IoT Hub routing query a device message has to match to be stored in Cosmos DB; every message still reaches the built-in endpoint. Body fields are only visible in messages sent with contentType application/json and contentEncoding UTF-8. The default is the structure of schemas/telemetry/v1.schema.json - a coarse check, the Function App validates the whole schema."
-  type        = string
-  default     = "$body.schemaVersion = 1 AND IS_STRING($body.messageId) AND IS_STRING($body.deviceId) AND IS_STRING($body.timestamp) AND IS_OBJECT($body.readings) AND ($body.mode = 'agriculture' OR $body.mode = 'industry' OR $body.mode = 'weather')"
 }
 
 # --- Cost guards ----------------------------------------------------------------

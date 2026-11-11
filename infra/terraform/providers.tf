@@ -6,12 +6,9 @@ provider "azurerm" {
   resource_provider_registrations = "none"
   resource_providers_to_register = [
     "Microsoft.Consumption",
-    "Microsoft.Devices",
-    "Microsoft.DocumentDB",
     "Microsoft.Insights",
     "Microsoft.KeyVault",
     "Microsoft.OperationalInsights",
-    "Microsoft.Sql",
     "Microsoft.Storage",
     "Microsoft.Web",
   ]
@@ -28,5 +25,3 @@ provider "azurerm" {
     }
   }
 }
-
-provider "azapi" {}

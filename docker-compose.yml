@@ -38,6 +38,22 @@ services:
       retries: 10
       start_period: 30s
 
+  mqtt:
+    # MQTT broker for device / simulator telemetry (topics enviromapper/telemetry/<mode>/<deviceId>).
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only: the local config allows anonymous clients.
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqttdata:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   adminer:
     # Optional DB browser, started only on request: docker compose --profile tools up -d
     image: adminer:5.4.1
@@ -53,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  mqttdata:

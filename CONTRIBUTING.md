@@ -54,7 +54,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/).
 feat(backend): add device registration endpoint
 fix(ai): correct anomaly threshold for agriculture mode
 chore(frontend): upgrade React to v19
-infra: add CosmosDB Bicep module
+infra: add Key Vault secret for the API
 docs: update quick start instructions
 ```
 

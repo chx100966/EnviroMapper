@@ -1,5 +1,4 @@
-# One general-purpose account: Function App host storage + deployment packages, AI model
-# artefacts, and (optionally) the SPA as a static website. Cost at this scale: cents per month.
+# One general-purpose account: AI model artefacts and (optionally) the SPA as a static website. Cost at this scale: cents per month.
 resource "azurerm_storage_account" "main" {
   name                            = local.names.storage_account
   resource_group_name             = azurerm_resource_group.main.name
@@ -12,13 +11,7 @@ resource "azurerm_storage_account" "main" {
   tags                            = local.tags
 }
 
-resource "azurerm_storage_container" "function_deployments" {
-  name                  = "function-deployments"
-  storage_account_id    = azurerm_storage_account.main.id
-  container_access_type = "private"
-}
-
-# Trained models exported by ai/ (e.g. ONNX) and loaded by the Function App at startup.
+# Trained models exported by ai/ (e.g. ONNX).
 resource "azurerm_storage_container" "models" {
   name                  = "models"
   storage_account_id    = azurerm_storage_account.main.id
