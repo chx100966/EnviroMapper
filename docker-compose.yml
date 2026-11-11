@@ -1,0 +1,72 @@
+# Local development environment. Usage: see db/README.md.
+#   cp .env.example .env    # then set the passwords
+#   docker compose up -d
+#
+# Later services (ingest, api, frontend, ai) should wait for the database with:
+#   depends_on:
+#     db:
+#       condition: service_healthy
+
+name: enviromapper
+
+services:
+  db:
+    # PostgreSQL 17 + TimescaleDB 2.31. Pinned so every team member runs the same version.
+    image: timescale/timescaledb:2.31.0-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (copy .env.example)}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env (copy .env.example)}
+      TELEMETRY_DB_PASSWORD: ${TELEMETRY_DB_PASSWORD:?set TELEMETRY_DB_PASSWORD in .env (copy .env.example)}
+      # Do not send usage statistics to Timescale.
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      # Bound to localhost only, so the database is not reachable from the local network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mount the single file, not the whole directory: the image ships its own
+      # init scripts (000_install_timescaledb.sh, 001_timescaledb_tune.sh) there.
+      - ./db/init/01-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      # -h 127.0.0.1 (TCP, not the socket): during first-run init Postgres listens on the
+      # socket only, so the container turns healthy only once init scripts have finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  mqtt:
+    # MQTT broker for device / simulator telemetry (topics enviromapper/telemetry/<mode>/<deviceId>).
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only: the local config allows anonymous clients.
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqttdata:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    # Optional DB browser, started only on request: docker compose --profile tools up -d
+    image: adminer:5.4.1
+    profiles: ["tools"]
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  mqttdata:

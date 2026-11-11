@@ -48,7 +48,6 @@ infra/**/.terraform/
 infra/**/.terraform.tfstate.lock.info
 infra/**/terraform.tfvars
 infra/**/*.tfplan
-*.bicepparam.local
 
 # ------ General --------------------------------------------
 .ci-report/

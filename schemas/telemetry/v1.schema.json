@@ -12,18 +12,18 @@
       "const": 1
     },
     "messageId": {
-      "description": "Random UUID (lowercase) of this message, also sent as the message-id system property. Lets consumers drop duplicates of a retried send.",
+      "description": "Random UUID (lowercase) of this message. Lets consumers drop duplicates of a retried send.",
       "type": "string",
       "format": "uuid",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "deviceId": {
-      "description": "Device ID in IoT Hub, which is the DPS registration ID (e.g. sim-agriculture-01). Has to match the iothub-connection-device-id the hub stamps on the message.",
+      "description": "Device ID (e.g. sim-agriculture-01), also the device's MQTT client ID and the last level of the topic the message is published to.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
     },
     "mode": {
-      "description": "Operating mode of the device. Decides which readings are allowed. Has to match the device's twin tag mode, set by its DPS enrollment group.",
+      "description": "Operating mode of the device. Decides which readings are allowed. Has to match the mode level of the topic the message is published to.",
       "enum": ["agriculture", "industry", "weather"]
     },
     "timestamp": {

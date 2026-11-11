@@ -11,11 +11,6 @@ from typing import Any
 from simulators.sensors import SENSORS, Sensor
 
 SCHEMA_VERSION = 1
-CONTENT_TYPE = "application/json"
-CONTENT_ENCODING = "utf-8"
-
-# The free IoT Hub tier meters messages in 0.5 KB chunks: a bigger message counts twice.
-METERING_CHUNK = 512
 
 
 def utc_timestamp(moment: datetime) -> str:
@@ -24,16 +19,6 @@ def utc_timestamp(moment: datetime) -> str:
 
 def serialize(message: dict[str, Any]) -> str:
     return json.dumps(message, separators=(",", ":"), ensure_ascii=False)
-
-
-def metered_size(message: dict[str, Any]) -> int:
-    """Bytes IoT Hub counts against the daily quota: the body plus the system property values."""
-    return (
-        len(serialize(message).encode(CONTENT_ENCODING))
-        + len(message["messageId"])
-        + len(CONTENT_TYPE)
-        + len(CONTENT_ENCODING)
-    )
 
 
 class SimulatedDevice:

@@ -9,7 +9,7 @@ WSB Merito University Chorzów / Katowice
 |---|---|
 | **Supervisor** | Dr. Inż. Mariusz Mol |
 | **Team** | Bezrąk Patrycja · Grad-Drzewiecki Olaf · Gajowski Rafał |
-| **Tech stack** | C# .NET · React · Python · PyTorch · Microsoft Azure |
+| **Tech stack** | C# .NET · React · Python · PyTorch · PostgreSQL / TimescaleDB · MQTT · Docker · Microsoft Azure |
 
 ---
 
@@ -36,14 +36,14 @@ EnviroMapper/
 ├── ai/               # Python / PyTorch — AI models, IoT simulators
 ├── infra/            # Microsoft Azure — OpenTofu IaC (see infra/terraform/README.md)
 ├── schemas/          # Shared data contracts, e.g. the telemetry message format (schemas/telemetry/)
+├── db/               # Local PostgreSQL + TimescaleDB: init script, migrations (see db/README.md)
 └── docs/             # Documentation, mockups, diagrams
 ```
 
-Key Azure components:
-- **Azure IoT Hub** — device / simulator data ingestion
-- **Azure SQL / CosmosDB** — sensor data storage
-- **Azure Functions** — near-real-time event processing
-- **Azure App Service** — API and frontend hosting
+Key components (Docker containers, run locally and in Azure):
+- **MQTT broker (Eclipse Mosquitto)** — device / simulator data ingestion
+- **PostgreSQL + TimescaleDB** — application data and sensor readings
+- **Backend API, frontend, telemetry processing** — own containers as the code arrives
 
 ---
 
@@ -61,6 +61,9 @@ Key Azure components:
 module. `ai/` has the IoT device simulator ([ai/README.md](ai/README.md)), and the infrastructure is
 described in [infra/terraform/README.md](infra/terraform/README.md).
 
+Local environment (PostgreSQL + TimescaleDB and the MQTT broker in Docker): `cp .env.example .env`,
+set the passwords, then `docker compose up -d`. Details in [db/README.md](db/README.md).
+
 ---
 
 ## Contributing
@@ -72,7 +75,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions, branch strategy, 
 ## Project phases
 
 - [x] Phase 1 — Analysis & Design
-- [ ] Phase 2 — Data ingestion (IoT Hub + Simulator)
+- [ ] Phase 2 — Data ingestion (MQTT + Simulator)
 - [ ] Phase 3 — AI & Data Analysis
 - [ ] Phase 4 — Web Application Development
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from simulators.sensors import MODES, SENSORS
-from simulators.telemetry import METERING_CHUNK, SimulatedDevice, metered_size, utc_timestamp
+from simulators.telemetry import SimulatedDevice, utc_timestamp
 
 START = datetime(2026, 11, 6, 20, 0, tzinfo=UTC)
 
@@ -18,12 +18,6 @@ def run(mode, ticks, interval=timedelta(seconds=15), seed=1):
 def test_messages_match_the_schema(validator, mode):
     for message in run(mode, 2000):
         assert list(validator.iter_errors(message)) == [], message
-
-
-@pytest.mark.parametrize("mode", MODES)
-def test_a_message_is_one_chunk_of_the_free_tier_quota(mode):
-    longest = max(run(mode, 200), key=metered_size)
-    assert metered_size(longest) < METERING_CHUNK
 
 
 @pytest.mark.parametrize("mode", MODES)
