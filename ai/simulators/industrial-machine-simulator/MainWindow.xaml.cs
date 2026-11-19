@@ -23,10 +23,14 @@ namespace Symulator
     {
         private readonly MachineSimulator simulator;
         private readonly DispatcherTimer timer;
+        private readonly TelemetrySerializer serializer;
+        private readonly TelemetryValidator validator;
         public MainWindow()
         {
             InitializeComponent();
             simulator = new MachineSimulator();
+            serializer = new TelemetrySerializer();
+            validator = new TelemetryValidator();
 
             timer = new DispatcherTimer();
             timer.Interval = TimeSpan.FromSeconds(1);
@@ -54,6 +58,26 @@ namespace Symulator
             TelemetryData data = simulator.Update();
 
             UpdateInterface(data);
+
+            if (simulator.IsRunning)
+            {
+                TelemetryMessage message = simulator.CreateTelemetryMessage();
+
+                string json = serializer.Serialize(message);
+
+                bool isValid = validator.IsValid(json);
+
+                if (isValid)
+                {
+                    System.Diagnostics.Debug.WriteLine("[OK] Wiadomość JSON poprawna:");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[BŁĄD] Wiadomość JSON niezgodna ze schematem!");
+                }
+
+                System.Diagnostics.Debug.WriteLine(json);
+            }
         }
 
         private void SetColor(System.Windows.Controls.TextBlock element, double value, double min, double max)

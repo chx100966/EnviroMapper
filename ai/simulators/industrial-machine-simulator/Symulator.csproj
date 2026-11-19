@@ -8,4 +8,18 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="Schemas\v1.schema.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Schemas\v1.schema.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="9.7.0" />
+  </ItemGroup>
+
 </Project>

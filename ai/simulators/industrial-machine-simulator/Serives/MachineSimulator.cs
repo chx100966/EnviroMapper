@@ -159,5 +159,24 @@ namespace Symulator.Serives
         {
             return random.NextDouble() * (max - min) + min;
         }
+        public TelemetryMessage CreateTelemetryMessage()
+        {
+            return new TelemetryMessage
+            {
+                MessageId = Guid.NewGuid().ToString().ToLowerInvariant(),
+                DeviceId = "sim-industry-01",
+                Mode = "industry",
+                Timestamp = DateTime.UtcNow.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",
+                System.Globalization.CultureInfo.InvariantCulture
+                ),
+                Readings = new IndustryReadings
+                {
+                    Vibration = CurrentData.Vibration,
+                    Temperature = CurrentData.Temperature,
+                    Pressure = CurrentData.Pressure
+                }
+            };
+        }
     }
 }
